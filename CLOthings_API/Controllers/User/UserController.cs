@@ -1,4 +1,4 @@
-using CLOthings_API.DTOs;
+using CLOthings_API.DTO.User;
 using CLOthings_API.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -22,9 +22,10 @@ public class UserController : ControllerBase
         {
             UserId = e.UserId,
             Username = e.Username,
-            Email = e.Email,
             Account = e.Account,
             Password = e.Password,
+            Email = e.Email,
+            Phone = e.Phone,
         }).ToListAsync();
         return Ok(users);
     }

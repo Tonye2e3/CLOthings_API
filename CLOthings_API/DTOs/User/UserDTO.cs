@@ -1,4 +1,4 @@
-﻿namespace CLOthings_API.DTOs
+﻿namespace CLOthings_API.DTO.User
 {
     public class UserDTO
     {

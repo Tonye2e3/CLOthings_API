@@ -12,4 +12,13 @@
     <PackageReference Include="Microsoft.OpenApi" Version="2.11.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Controllers\Community\" />
+    <Folder Include="Controllers\GroupShop\" />
+    <Folder Include="Controllers\Shop\" />
+    <Folder Include="DTOs\Community\" />
+    <Folder Include="DTOs\GroupShop\" />
+    <Folder Include="DTOs\Shop\" />
+  </ItemGroup>
+
 </Project>
