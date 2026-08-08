@@ -1,0 +1,261 @@
+﻿using CLOthings_API.DTOs.GroupShop;
+using CLOthings_API.Models;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
+[Route("api/GroupOrder")]
+[ApiController]
+public class GroupOrderController : ControllerBase
+{
+    private readonly CLOthingsContext _context;
+    public GroupOrderController(CLOthingsContext context)
+    {
+        _context = context;
+    }
+
+    // GET: api/GroupOrder/5   (5 是 userId)，對應「我的團購訂單」列表頁
+    [HttpGet("{userId}")]
+    public async Task<ActionResult<IEnumerable<GroupOrderListDTO>>> GetOrders(int userId)
+    {
+        var orders = await _context.GroupOrder
+            .Include(o => o.GroupOrderDetail)
+                .ThenInclude(d => d.GroupProduct)
+            .Where(o => o.UserId == userId)
+            .OrderByDescending(o => o.OrderDate)
+            .ToListAsync();
+
+        var result = orders.Select(ToListDTO).ToList();
+        return Ok(result);
+    }
+
+    // GET: api/GroupOrder/detail/5   (5 是 GroupOrderId)，給「編輯訂單」Modal 用
+    [HttpGet("detail/{orderId}")]
+    public async Task<ActionResult<GroupOrderDetailFullDTO>> GetOrderDetail(int orderId)
+    {
+        var order = await _context.GroupOrder
+            .Include(o => o.GroupOrderDetail)
+                .ThenInclude(d => d.GroupProduct)
+            .FirstOrDefaultAsync(o => o.GroupOrderId == orderId);
+
+        if (order == null)
+        {
+            return NotFound();
+        }
+
+        return Ok(ToFullDTO(order));
+    }
+
+    // POST: api/GroupOrder/checkout
+    // 把使用者購物車（GroupCart）裡的商品結成一筆訂單，成功後會清空購物車
+    [HttpPost("checkout")]
+    public async Task<ActionResult<GroupOrderDetailFullDTO>> Checkout(GroupCheckoutDTO dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.ShipName) || string.IsNullOrWhiteSpace(dto.ShipPhone) || string.IsNullOrWhiteSpace(dto.ShipAddress))
+        {
+            return BadRequest("請完整填寫收件人姓名、電話與地址");
+        }
+
+        var cartItems = await _context.GroupCart
+            .Include(c => c.GroupProduct)
+            .Where(c => c.UserId == dto.UserId)
+            .ToListAsync();
+
+        if (cartItems.Count == 0)
+        {
+            return BadRequest("購物車是空的，請先加入商品");
+        }
+
+        var orderedQtyMap = await _context.GroupOrderDetail
+            .Where(d => d.GroupOrder.Status != "已取消")
+            .GroupBy(d => d.GroupProductId)
+            .Select(g => new { GroupProductId = g.Key, Qty = g.Sum(x => x.Quantity) })
+            .ToDictionaryAsync(x => x.GroupProductId, x => x.Qty);
+
+        var tierMap = await _context.GroupDiscountStandard.ToListAsync();
+
+        // 逐項算出目前應該用的單價（已成立件數 + 這筆購物車件數）
+        var priced = cartItems.Select(c =>
+        {
+            var (unitPrice, _) = GroupCartController.ComputeUnitPrice(c.GroupProduct, tierMap, orderedQtyMap, c.GroupProductId, c.Quantity);
+            return new { Cart = c, UnitPrice = unitPrice };
+        }).ToList();
+
+        var subtotal = priced.Sum(p => p.UnitPrice * p.Cart.Quantity);
+        var freight = subtotal >= 1000 ? 0 : 60;
+        var grandTotal = subtotal + freight;
+
+        // 目前沒有真正的金流串接，這裡把使用者選的付款方式當作一筆 GroupPaymentMethod 記錄（找不到就新增一筆）
+        var paymentMethod = await _context.GroupPaymentMethod.FirstOrDefaultAsync(p =>
+            p.UserId == dto.UserId && p.Provider == dto.PaymentMethod);
+
+        if (paymentMethod == null)
+        {
+            paymentMethod = new GroupPaymentMethod
+            {
+                UserId = dto.UserId,
+                Provider = dto.PaymentMethod,
+                IsDefault = false
+            };
+            _context.GroupPaymentMethod.Add(paymentMethod);
+            await _context.SaveChangesAsync(); // 先存檔才能拿到 PaymentMethodId
+        }
+
+        var order = new GroupOrder
+        {
+            UserId = dto.UserId,
+            Status = "進行中 (組團中)",
+            TotalPrice = grandTotal,
+            OrderDate = DateTimeOffset.Now,
+            PickupMethod = dto.PickupMethod,
+            ShipName = dto.ShipName,
+            ShipAddress = dto.ShipAddress,
+            ShipPhone = dto.ShipPhone,
+            Freight = freight,
+            PaymentMethodId = paymentMethod.GroupPaymentMethodId
+        };
+
+        foreach (var p in priced)
+        {
+            order.GroupOrderDetail.Add(new GroupOrderDetail
+            {
+                GroupProductId = p.Cart.GroupProductId,
+                GroupProductSpecificationId = p.Cart.GroupProductSpecificationId,
+                Quantity = p.Cart.Quantity,
+                Price = p.UnitPrice,
+                Discount = p.UnitPrice < p.Cart.GroupProduct.Price
+                    ? Math.Round(p.UnitPrice / p.Cart.GroupProduct.Price, 4)
+                    : (decimal?)null
+            });
+        }
+
+        _context.GroupOrder.Add(order);
+
+        // 訂單建立成功後清空這位使用者的購物車
+        _context.GroupCart.RemoveRange(cartItems);
+
+        await _context.SaveChangesAsync();
+
+        // 重新查一次，把 GroupProduct 名稱帶進來組成回傳的 DTO
+        var saved = await _context.GroupOrder
+            .Include(o => o.GroupOrderDetail)
+                .ThenInclude(d => d.GroupProduct)
+            .FirstAsync(o => o.GroupOrderId == order.GroupOrderId);
+
+        return Ok(ToFullDTO(saved));
+    }
+
+    // PUT: api/GroupOrder/5/cancel   (5 是 GroupOrderId)
+    [HttpPut("{orderId}/cancel")]
+    public async Task<IActionResult> CancelOrder(int orderId)
+    {
+        var order = await _context.GroupOrder.FindAsync(orderId);
+        if (order == null)
+        {
+            return NotFound();
+        }
+
+        if (order.Status == "已取消")
+        {
+            return NoContent(); // 已經取消過了，避免重複扣件數，直接回傳成功
+        }
+
+        // 這裡不用像前端那樣另外扣「已累計件數」，因為 GroupProductController 查詢時
+        // 本來就只加總「非已取消」訂單的件數，狀態一改，商品頁的已訂購件數會自動同步復原
+        order.Status = "已取消";
+        await _context.SaveChangesAsync();
+
+        return NoContent();
+    }
+
+    // PUT: api/GroupOrder/5   (5 是 GroupOrderId)，對應「編輯訂單」Modal 的儲存
+    [HttpPut("{orderId}")]
+    public async Task<ActionResult<GroupOrderDetailFullDTO>> EditOrder(int orderId, EditGroupOrderDTO dto)
+    {
+        var order = await _context.GroupOrder
+            .Include(o => o.GroupOrderDetail)
+                .ThenInclude(d => d.GroupProduct)
+            .FirstOrDefaultAsync(o => o.GroupOrderId == orderId);
+
+        if (order == null)
+        {
+            return NotFound();
+        }
+
+        if (order.Status == "已取消")
+        {
+            return BadRequest("已取消的訂單不能編輯");
+        }
+
+        order.ShipName = dto.ShipName;
+
+        var orderedQtyMap = await _context.GroupOrderDetail
+            .Where(d => d.GroupOrder.Status != "已取消" && d.GroupOrderId != orderId)
+            .GroupBy(d => d.GroupProductId)
+            .Select(g => new { GroupProductId = g.Key, Qty = g.Sum(x => x.Quantity) })
+            .ToDictionaryAsync(x => x.GroupProductId, x => x.Qty);
+
+        var tierMap = await _context.GroupDiscountStandard.ToListAsync();
+
+        foreach (var editItem in dto.Items)
+        {
+            var detail = order.GroupOrderDetail.FirstOrDefault(d => d.GroupProductId == editItem.GroupProductId);
+            if (detail == null) continue;
+
+            var newQty = Math.Max(1, editItem.Quantity);
+            var (unitPrice, _) = GroupCartController.ComputeUnitPrice(detail.GroupProduct, tierMap, orderedQtyMap, detail.GroupProductId, newQty);
+
+            detail.Quantity = newQty;
+            detail.Price = unitPrice;
+
+            // 這個商品在「其他訂單」的累計件數也要一併加回去，才不會讓下一個品項算錯
+            orderedQtyMap[detail.GroupProductId] = orderedQtyMap.GetValueOrDefault(detail.GroupProductId) + newQty;
+        }
+
+        var subtotal = order.GroupOrderDetail.Sum(d => d.Price * d.Quantity);
+        order.Freight = subtotal >= 1000 ? 0 : 60;
+        order.TotalPrice = subtotal + order.Freight;
+
+        await _context.SaveChangesAsync();
+
+        return Ok(ToFullDTO(order));
+    }
+
+    // ---- 以下是把 GroupOrder 轉成前端要的 DTO 格式 ----
+
+    private static GroupOrderListDTO ToListDTO(GroupOrder o)
+    {
+        return new GroupOrderListDTO
+        {
+            GroupOrderId = o.GroupOrderId,
+            ProductName = string.Join("、", o.GroupOrderDetail.Select(d => $"{d.GroupProduct.ProductName} x{d.Quantity}")),
+            Status = o.Status,
+            TotalPrice = (int)o.TotalPrice,
+            OrderDate = o.OrderDate.ToString("yyyy/MM/dd"),
+            ShipName = o.ShipName
+        };
+    }
+
+    private static GroupOrderDetailFullDTO ToFullDTO(GroupOrder o)
+    {
+        return new GroupOrderDetailFullDTO
+        {
+            GroupOrderId = o.GroupOrderId,
+            ProductName = string.Join("、", o.GroupOrderDetail.Select(d => $"{d.GroupProduct.ProductName} x{d.Quantity}")),
+            Status = o.Status,
+            TotalPrice = (int)o.TotalPrice,
+            OrderDate = o.OrderDate.ToString("yyyy/MM/dd"),
+            ShipName = o.ShipName,
+            ShipPhone = o.ShipPhone,
+            ShipAddress = o.ShipAddress,
+            PickupMethod = o.PickupMethod,
+            Freight = (int)o.Freight,
+            Items = o.GroupOrderDetail.Select(d => new GroupOrderItemDTO
+            {
+                GroupProductId = d.GroupProductId,
+                ProductName = d.GroupProduct.ProductName,
+                Quantity = d.Quantity,
+                UnitPrice = (int)d.Price
+            }).ToList()
+        };
+    }
+}
