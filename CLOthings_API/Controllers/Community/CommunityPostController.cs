@@ -14,9 +14,42 @@ public class CommunityPostController : ControllerBase
 
     // GET: api/CommunityPost
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<CommunityPost>>> GetCommunityPost()
+    public async Task<ActionResult<IEnumerable<CommunityPostDTO>>> GetCommunityPost()
     {
-        return await _context.CommunityPost.ToListAsync();
+        return await _context.CommunityPost
+            .Select(c => new CommunityPostDTO
+            {
+                CommunityPostId = c.CommunityPostId,
+                UserId = c.UserId,
+                Content = c.Content,
+                PostDate = c.PostDate,
+                Status = c.Status,
+                User = new UserSummaryDTO
+                {
+                    UserId = c.User.UserId,
+                    Name = c.User.Username,
+                    Avatar = c.User.UserProfile.Select(p => p.Avatar).FirstOrDefault()
+                },
+                Images = c.PostImage
+                    .OrderBy(i => i.SortOrder)
+                    .Select(i => new PostImageDTO
+                    {
+                        PostImageId = i.PostImageId,
+                        ImageFileName = i.ImageFileName,
+                        SortOrder = i.SortOrder
+                    }).ToList(),
+                LikesCount = c.PostLike.Count(),
+                CommentsCount = c.PostComment.Count(),
+                TaggedProducts = c.PostTaggedProduct
+                    .Select(t => new TaggedProductDTO
+                    {
+                        PostTaggedProductId = t.PostTaggedProductId,
+                        ProductId = t.ProductId,
+                        ProductRoute = t.ProductRoute,
+                        Name = t.Product.ProductName
+                    }).ToList()
+            })
+            .ToListAsync();
     }
 
     // GET: api/CommunityPost/5
@@ -27,7 +60,7 @@ public class CommunityPostController : ControllerBase
 
         if (communitypost == null)
         {
-            return NotFound();
+            return NotFound();   // HTTP Error : 400
         }
 
         return communitypost;
@@ -40,7 +73,7 @@ public class CommunityPostController : ControllerBase
     {
         if (communitypostid != communitypost.CommunityPostId)
         {
-            return BadRequest();
+            return BadRequest();                // HTTP Error:400
         }
 
         _context.Entry(communitypost).State = EntityState.Modified;
@@ -53,7 +86,7 @@ public class CommunityPostController : ControllerBase
         {
             if (!CommunityPostExists(communitypostid))
             {
-                return NotFound();
+                return NotFound();              //HTTP Error:404
             }
             else
             {
@@ -61,7 +94,7 @@ public class CommunityPostController : ControllerBase
             }
         }
 
-        return NoContent();
+        return NoContent();                     //HTTP :204
     }
 
     // POST: api/CommunityPost
