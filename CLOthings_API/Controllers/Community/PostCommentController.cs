@@ -1,149 +1,136 @@
-
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using CLOthings_API.Models;
 
-public class PostCommentController : Controller
+[Route("api/[controller]")]
+[ApiController]
+public class PostCommentController : ControllerBase
 {
     private readonly CLOthingsContext _context;
-
     public PostCommentController(CLOthingsContext context)
     {
         _context = context;
     }
 
-    // GET: POSTCOMMENTS
-    public async Task<IActionResult> Index()    
+    // GET: api/PostComment/post/5
+    // 依 communityPostId 查詢「這篇貼文底下的所有留言」，PostDetailView.vue 要用這個端點。
+    // 依留言時間新到舊排序，最新的留言排最前面。
+    [HttpGet("post/{communitypostid}")]
+    public async Task<IEnumerable<CommentDTO>> GetPostCommentByPost(int communitypostid)
     {
-        return View(await _context.PostComment.ToListAsync());
+        return await _context.PostComment
+            .Where(c => c.CommunityPostId == communitypostid)
+            .OrderByDescending(c => c.CommentDate)
+            .Select(c => new CommentDTO
+            {
+                PostCommentId = c.PostCommentId,
+                ParentCommentId = c.ParentCommentId,
+                CommunityPostId = c.CommunityPostId,
+                UserId = c.UserId,
+                User = c.User.Username,
+                Avatar = c.User.UserProfile.Select(p => p.Avatar).FirstOrDefault(),
+                CommentText = c.CommentText,
+                CommentDate = c.CommentDate
+            })
+            .ToListAsync();
     }
 
-    // GET: POSTCOMMENTS/Details/5
-    public async Task<IActionResult> Details(int? postcommentid)
+    // GET: api/PostComment/5
+    [HttpGet("{postcommentid}")]
+    public async Task<CommentDTO> GetPostComment(int postcommentid)
     {
-        if (postcommentid == null)
+        var comment = await _context.PostComment
+            .Where(c => c.PostCommentId == postcommentid)
+            .Select(c => new CommentDTO
+            {
+                PostCommentId = c.PostCommentId,
+                ParentCommentId = c.ParentCommentId,
+                CommunityPostId = c.CommunityPostId,
+                UserId = c.UserId,
+                User = c.User.Username,
+                Avatar = c.User.UserProfile.Select(p => p.Avatar).FirstOrDefault(),
+                CommentText = c.CommentText,
+                CommentDate = c.CommentDate
+            })
+            .FirstOrDefaultAsync();
+
+        if (comment == null)
         {
-            return NotFound();
+            return null;
         }
 
-        var postcomment = await _context.PostComment
-            .FirstOrDefaultAsync(m => m.PostCommentId == postcommentid);
-        if (postcomment == null)
-        {
-            return NotFound();
-        }
-
-        return View(postcomment);
+        return comment;
     }
 
-    // GET: POSTCOMMENTS/Create
-    public IActionResult Create()
+    // PUT: api/PostComment/5
+    [HttpPut("{postcommentid}")]
+    public async Task<ResultDTO> PutPostComment(int? postcommentid, CommentDTO commentDTO)
     {
-        return View();
-    }
-
-    // POST: POSTCOMMENTS/Create
-    // To protect from overposting attacks, enable the specific properties you want to bind to.
-    // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
-    [HttpPost]
-    [ValidateAntiForgeryToken]
-    public async Task<IActionResult> Create([Bind("PostCommentId,ParentCommentId,CommunityPostId,UserId,CommentText,CommentDate,CommunityPost,InverseParentComment,ParentComment,User")] PostComment postcomment)
-    {
-        if (ModelState.IsValid)
+        if (postcommentid != commentDTO.PostCommentId)
         {
-            _context.Add(postcomment);
-            await _context.SaveChangesAsync();
-            return RedirectToAction(nameof(Index));
-        }
-        return View(postcomment);
-    }
-
-    // GET: POSTCOMMENTS/Edit/5
-    public async Task<IActionResult> Edit(int? postcommentid)
-    {
-        if (postcommentid == null)
-        {
-            return NotFound();
+            return new ResultDTO { OK = false, Code = 400 };
         }
 
-        var postcomment = await _context.PostComment.FindAsync(postcommentid);
-        if (postcomment == null)
+        PostComment comment = await _context.PostComment.FindAsync(commentDTO.PostCommentId);
+        if (comment == null)
         {
-            return NotFound();
+            return new ResultDTO { OK = false, Code = 404 };
         }
-        return View(postcomment);
-    }
-
-    // POST: POSTCOMMENTS/Edit/5
-    // To protect from overposting attacks, enable the specific properties you want to bind to.
-    // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
-    [HttpPost]
-    [ValidateAntiForgeryToken]
-    public async Task<IActionResult> Edit(int? postcommentid, [Bind("PostCommentId,ParentCommentId,CommunityPostId,UserId,CommentText,CommentDate,CommunityPost,InverseParentComment,ParentComment,User")] PostComment postcomment)
-    {
-        if (postcommentid != postcomment.PostCommentId)
+        else
         {
-            return NotFound();
-        }
+            // 只能改留言文字本身，User、Avatar 是查詢時組出來的唯讀資訊，不能寫回資料庫。
+            comment.CommentText = commentDTO.CommentText;
+            _context.Entry(comment).State = EntityState.Modified;
 
-        if (ModelState.IsValid)
-        {
             try
             {
-                _context.Update(postcomment);
                 await _context.SaveChangesAsync();
             }
             catch (DbUpdateConcurrencyException)
             {
-                if (!PostCommentExists(postcomment.PostCommentId))
-                {
-                    return NotFound();
-                }
-                else
-                {
-                    throw;
-                }
+                return new ResultDTO { OK = false, Code = 500 };
             }
-            return RedirectToAction(nameof(Index));
+            return new ResultDTO { OK = true, Code = 204 };
         }
-        return View(postcomment);
     }
 
-    // GET: POSTCOMMENTS/Delete/5
-    public async Task<IActionResult> Delete(int? postcommentid)
+    // POST: api/PostComment
+    [HttpPost]
+    public async Task<ResultDTO> PostPostComment(CommentDTO commentDTO)
     {
-        if (postcommentid == null)
+        PostComment comment = new PostComment
         {
-            return NotFound();
-        }
-
-        var postcomment = await _context.PostComment
-            .FirstOrDefaultAsync(m => m.PostCommentId == postcommentid);
-        if (postcomment == null)
-        {
-            return NotFound();
-        }
-
-        return View(postcomment);
-    }
-
-    // POST: POSTCOMMENTS/Delete/5
-    [HttpPost, ActionName("Delete")]
-    [ValidateAntiForgeryToken]
-    public async Task<IActionResult> DeleteConfirmed(int? postcommentid)
-    {
-        var postcomment = await _context.PostComment.FindAsync(postcommentid);
-        if (postcomment != null)
-        {
-            _context.PostComment.Remove(postcomment);
-        }
-
+            PostCommentId = 0,
+            ParentCommentId = commentDTO.ParentCommentId,
+            CommunityPostId = commentDTO.CommunityPostId,
+            UserId = commentDTO.UserId,
+            CommentText = commentDTO.CommentText,
+            CommentDate = DateTimeOffset.Now
+        };
+        _context.PostComment.Add(comment);
         await _context.SaveChangesAsync();
-        return RedirectToAction(nameof(Index));
+
+        return new ResultDTO { OK = true, Code = 204 };
     }
 
-    private bool PostCommentExists(int? postcommentid)
+    // DELETE: api/PostComment/5
+    [HttpDelete("{postcommentid}")]
+    public async Task<ResultDTO> DeletePostComment(int? postcommentid)
     {
-        return _context.PostComment.Any(e => e.PostCommentId == postcommentid);
+        var comment = await _context.PostComment.FindAsync(postcommentid);
+        if (comment == null)
+        {
+            return new ResultDTO { OK = false, Code = 404 };
+        }
+        try
+        {
+            _context.PostComment.Remove(comment);
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            return new ResultDTO { OK = false, Code = 500 };
+        }
+        return new ResultDTO { OK = true, Code = 204 };
     }
 }
