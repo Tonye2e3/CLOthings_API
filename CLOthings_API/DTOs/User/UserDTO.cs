@@ -13,19 +13,5 @@
         public string Email { get; set; }
 
         public string Phone { get; set; }
-
-        public DateTimeOffset CreatedAt { get; set; }
-
-        public DateTimeOffset UpdatedAt { get; set; }
-
-        public int UserType { get; set; }
-
-        public int Status { get; set; }
-
-        public bool? TwoFactorEnabled { get; set; }
-
-        public string TwoFactorSecret { get; set; }
-
-        public string CountryCode { get; set; }
     }
 }
