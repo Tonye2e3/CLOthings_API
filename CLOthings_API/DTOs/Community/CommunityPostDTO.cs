@@ -8,7 +8,7 @@ public class CommunityPostDTO
     public DateTimeOffset PostDate { get; set; }
     public string Status { get; set; }
 
-    public UserSummaryDTO User { get; set; }
+    public UserSummaryDTO? User { get; set; }
     public List<PostImageDTO> Images { get; set; }
     public int LikesCount { get; set; }
     public int CommentsCount { get; set; }
@@ -33,6 +33,6 @@ public class TaggedProductDTO
 {
     public int PostTaggedProductId { get; set; }
     public int ProductId { get; set; }
-    public string ProductRoute { get; set; }
-    public string Name { get; set; }
+    public string? ProductRoute { get; set; }
+    public string? Name { get; set; }
 }
