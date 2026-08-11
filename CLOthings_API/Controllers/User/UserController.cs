@@ -2,6 +2,7 @@ using CLOthings_API.DTO.User;
 using CLOthings_API.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using CLOthings.Enums;
 
 
 [Route("api/[controller]")]
@@ -121,7 +122,7 @@ public class UserController : ControllerBase
         {
             name = user.Username,
             account = user.Account,
-            usertype = user.UserType
+            role = ((UserTypeEnum)user.UserType).ToString()
         }
             );
     }
