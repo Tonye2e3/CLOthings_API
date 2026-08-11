@@ -220,6 +220,85 @@ public class GroupOrderController : ControllerBase
         return Ok(ToFullDTO(order));
     }
 
+    // ================= 以下是管理端（訂單列表 + 更新狀態 + 指派物流）的 API =================
+
+    // GET: api/GroupOrder/admin/all
+    // status 選填：帶了就只回傳該狀態的訂單，例如 ?status=進行中 (組團中)
+    [HttpGet("admin/all")]
+    public async Task<ActionResult<IEnumerable<GroupOrderAdminListDTO>>> GetAllOrders([FromQuery] string status = null)
+    {
+        var query = _context.GroupOrder
+            .Include(o => o.GroupOrderDetail)
+                .ThenInclude(d => d.GroupProduct)
+            .Include(o => o.GroupShipper)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            query = query.Where(o => o.Status == status);
+        }
+
+        var orders = await query.OrderByDescending(o => o.OrderDate).ToListAsync();
+        return Ok(orders.Select(ToAdminListDTO).ToList());
+    }
+
+    // PUT: api/GroupOrder/5/status   (5 是 GroupOrderId)
+    [HttpPut("{orderId}/status")]
+    public async Task<IActionResult> UpdateStatus(int orderId, UpdateOrderStatusDTO dto)
+    {
+        var order = await _context.GroupOrder.FindAsync(orderId);
+        if (order == null)
+        {
+            return NotFound();
+        }
+
+        order.Status = dto.Status;
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
+
+    // PUT: api/GroupOrder/5/shipper   (5 是 GroupOrderId)
+    [HttpPut("{orderId}/shipper")]
+    public async Task<IActionResult> AssignShipper(int orderId, AssignShipperDTO dto)
+    {
+        var order = await _context.GroupOrder.FindAsync(orderId);
+        if (order == null)
+        {
+            return NotFound();
+        }
+
+        var shipperExists = await _context.GroupShipper.AnyAsync(s => s.GroupShipperId == dto.GroupShipperId);
+        if (!shipperExists)
+        {
+            return BadRequest("找不到這個物流商");
+        }
+
+        order.GroupShipperId = dto.GroupShipperId;
+        order.ShipperDate = dto.ShipperDate ?? DateTimeOffset.Now;
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
+
+    private static GroupOrderAdminListDTO ToAdminListDTO(GroupOrder o)
+    {
+        return new GroupOrderAdminListDTO
+        {
+            GroupOrderId = o.GroupOrderId,
+            UserId = o.UserId,
+            ProductName = string.Join("、", o.GroupOrderDetail.Select(d => $"{d.GroupProduct.ProductName} x{d.Quantity}")),
+            Status = o.Status,
+            TotalPrice = (int)o.TotalPrice,
+            OrderDate = o.OrderDate.ToString("yyyy/MM/dd HH:mm"),
+            PickupMethod = o.PickupMethod,
+            ShipName = o.ShipName,
+            ShipPhone = o.ShipPhone,
+            ShipAddress = o.ShipAddress,
+            GroupShipperId = o.GroupShipperId,
+            ShipperName = o.GroupShipper != null ? o.GroupShipper.ShipperName : null,
+            ShipperDate = o.ShipperDate.HasValue ? o.ShipperDate.Value.ToString("yyyy/MM/dd") : null
+        };
+    }
+
     // ---- 以下是把 GroupOrder 轉成前端要的 DTO 格式 ----
 
     private static GroupOrderListDTO ToListDTO(GroupOrder o)

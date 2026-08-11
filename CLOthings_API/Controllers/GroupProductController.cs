@@ -105,4 +105,264 @@ public class GroupProductController : ControllerBase
             .Select(g => new { GroupProductId = g.Key, Qty = g.Sum(x => x.Quantity) })
             .ToDictionaryAsync(x => x.GroupProductId, x => x.Qty);
     }
+
+    // ================= 以下是管理端（商品上架/編輯/下架 + 階層 + 規格）的 API =================
+
+    // GET: api/GroupProduct/5/edit
+    // 編輯商品表單要用的原始欄位（GroupSupplierId / GroupProductCategoryId 這些買家端的 DTO 不會回傳）
+    [HttpGet("{id}/edit")]
+    public async Task<ActionResult<SaveGroupProductDTO>> GetProductForEdit(int id)
+    {
+        var product = await _context.GroupProduct.FindAsync(id);
+        if (product == null)
+        {
+            return NotFound();
+        }
+
+        return Ok(new SaveGroupProductDTO
+        {
+            ProductName = product.ProductName,
+            GroupSupplierId = product.GroupSupplierId,
+            GroupProductCategoryId = product.GroupProductCategoryId,
+            Description = product.Description,
+            Price = (int)product.Price,
+            Status = product.Status,
+            ProductImg = product.ProductImg,
+            SalesStart = product.SalesStart,
+            SalesEnd = product.SalesEnd
+        });
+    }
+
+    // POST: api/GroupProduct
+    // 新增團購商品
+    [HttpPost]
+    public async Task<ActionResult<GroupProductDTO>> CreateProduct(SaveGroupProductDTO dto)
+    {
+        var product = new GroupProduct
+        {
+            ProductName = dto.ProductName,
+            GroupSupplierId = dto.GroupSupplierId,
+            GroupProductCategoryId = dto.GroupProductCategoryId,
+            Description = dto.Description,
+            Price = dto.Price,
+            Status = dto.Status,
+            ProductImg = dto.ProductImg,
+            SalesStart = dto.SalesStart,
+            SalesEnd = dto.SalesEnd
+        };
+
+        _context.GroupProduct.Add(product);
+        await _context.SaveChangesAsync();
+
+        return Ok(BuildProductDTO(product, new Dictionary<int, int>(), new List<GroupDiscountStandard>()));
+    }
+
+    // PUT: api/GroupProduct/5
+    // 編輯團購商品基本資料
+    [HttpPut("{id}")]
+    public async Task<IActionResult> UpdateProduct(int id, SaveGroupProductDTO dto)
+    {
+        var product = await _context.GroupProduct.FindAsync(id);
+        if (product == null)
+        {
+            return NotFound();
+        }
+
+        product.ProductName = dto.ProductName;
+        product.GroupSupplierId = dto.GroupSupplierId;
+        product.GroupProductCategoryId = dto.GroupProductCategoryId;
+        product.Description = dto.Description;
+        product.Price = dto.Price;
+        product.Status = dto.Status;
+        product.ProductImg = dto.ProductImg;
+        product.SalesStart = dto.SalesStart;
+        product.SalesEnd = dto.SalesEnd;
+
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
+
+    // DELETE: api/GroupProduct/5
+    // 下架/刪除商品：如果已經有訂單明細用到這個商品，改成把 Status 設為「已下架」，避免刪掉造成訂單資料出錯；
+    // 完全沒有任何訂單用過的商品才會真的整筆刪除
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> DeleteProduct(int id)
+    {
+        var product = await _context.GroupProduct.FindAsync(id);
+        if (product == null)
+        {
+            return NotFound();
+        }
+
+        var hasOrders = await _context.GroupOrderDetail.AnyAsync(d => d.GroupProductId == id);
+        if (hasOrders)
+        {
+            product.Status = "已下架";
+            await _context.SaveChangesAsync();
+            return Ok(new { message = "此商品已經有訂單資料，改為下架而非刪除" });
+        }
+
+        var specs = await _context.GroupProductSpecification.Where(s => s.GroupProductId == id).ToListAsync();
+        var tiers = await _context.GroupDiscountStandard.Where(t => t.GroupProductId == id).ToListAsync();
+        _context.GroupProductSpecification.RemoveRange(specs);
+        _context.GroupDiscountStandard.RemoveRange(tiers);
+        _context.GroupProduct.Remove(product);
+        await _context.SaveChangesAsync();
+
+        return NoContent();
+    }
+
+    // ---- 團購階層（GroupDiscountStandard） ----
+
+    // GET: api/GroupProduct/5/tiers
+    [HttpGet("{id}/tiers")]
+    public async Task<ActionResult<IEnumerable<TierAdminDTO>>> GetTiers(int id)
+    {
+        var tiers = await _context.GroupDiscountStandard
+            .Where(t => t.GroupProductId == id)
+            .Select(t => new TierAdminDTO
+            {
+                GroupDiscountStandardId = t.GroupDiscountStandardId,
+                TierLevel = t.TierLevel,
+                ThresholdCount = ParseThresholdCount(t.ThresholdCount),
+                DiscountRate = t.DiscountRate ?? 1m
+            })
+            .OrderBy(t => t.ThresholdCount)
+            .ToListAsync();
+
+        return Ok(tiers);
+    }
+
+    // POST: api/GroupProduct/5/tiers
+    [HttpPost("{id}/tiers")]
+    public async Task<ActionResult<TierAdminDTO>> AddTier(int id, SaveTierDTO dto)
+    {
+        var product = await _context.GroupProduct.FindAsync(id);
+        if (product == null)
+        {
+            return NotFound("找不到這個商品");
+        }
+
+        var tier = new GroupDiscountStandard
+        {
+            GroupProductId = id,
+            TierLevel = dto.TierLevel,
+            ThresholdCount = dto.ThresholdCount.ToString(),
+            DiscountRate = dto.DiscountRate
+        };
+
+        _context.GroupDiscountStandard.Add(tier);
+        await _context.SaveChangesAsync();
+
+        return Ok(new TierAdminDTO
+        {
+            GroupDiscountStandardId = tier.GroupDiscountStandardId,
+            TierLevel = tier.TierLevel,
+            ThresholdCount = dto.ThresholdCount,
+            DiscountRate = dto.DiscountRate
+        });
+    }
+
+    // PUT: api/GroupProduct/tiers/5   (5 是 GroupDiscountStandardId)
+    [HttpPut("tiers/{tierId}")]
+    public async Task<IActionResult> UpdateTier(int tierId, SaveTierDTO dto)
+    {
+        var tier = await _context.GroupDiscountStandard.FindAsync(tierId);
+        if (tier == null)
+        {
+            return NotFound();
+        }
+
+        tier.TierLevel = dto.TierLevel;
+        tier.ThresholdCount = dto.ThresholdCount.ToString();
+        tier.DiscountRate = dto.DiscountRate;
+
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
+
+    // DELETE: api/GroupProduct/tiers/5
+    [HttpDelete("tiers/{tierId}")]
+    public async Task<IActionResult> DeleteTier(int tierId)
+    {
+        var tier = await _context.GroupDiscountStandard.FindAsync(tierId);
+        if (tier == null)
+        {
+            return NotFound();
+        }
+
+        _context.GroupDiscountStandard.Remove(tier);
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
+
+    // ---- 商品規格（GroupProductSpecification，尺寸/顏色） ----
+
+    // GET: api/GroupProduct/5/specifications
+    [HttpGet("{id}/specifications")]
+    public async Task<ActionResult<IEnumerable<SpecAdminDTO>>> GetSpecifications(int id)
+    {
+        var specs = await _context.GroupProductSpecification
+            .Where(s => s.GroupProductId == id)
+            .Select(s => new SpecAdminDTO
+            {
+                GroupProductSpecificationId = s.GroupProductSpecificationId,
+                Size = s.Size,
+                Color = s.Color
+            })
+            .ToListAsync();
+
+        return Ok(specs);
+    }
+
+    // POST: api/GroupProduct/5/specifications
+    [HttpPost("{id}/specifications")]
+    public async Task<ActionResult<SpecAdminDTO>> AddSpecification(int id, SaveSpecDTO dto)
+    {
+        var product = await _context.GroupProduct.FindAsync(id);
+        if (product == null)
+        {
+            return NotFound("找不到這個商品");
+        }
+
+        var spec = new GroupProductSpecification
+        {
+            GroupProductId = id,
+            Size = dto.Size,
+            Color = dto.Color
+        };
+
+        _context.GroupProductSpecification.Add(spec);
+        await _context.SaveChangesAsync();
+
+        return Ok(new SpecAdminDTO
+        {
+            GroupProductSpecificationId = spec.GroupProductSpecificationId,
+            Size = spec.Size,
+            Color = spec.Color
+        });
+    }
+
+    // DELETE: api/GroupProduct/specifications/5
+    [HttpDelete("specifications/{specId}")]
+    public async Task<IActionResult> DeleteSpecification(int specId)
+    {
+        var spec = await _context.GroupProductSpecification.FindAsync(specId);
+        if (spec == null)
+        {
+            return NotFound();
+        }
+
+        var inUse = await _context.GroupCart.AnyAsync(c => c.GroupProductSpecificationId == specId)
+            || await _context.GroupOrderDetail.AnyAsync(d => d.GroupProductSpecificationId == specId);
+
+        if (inUse)
+        {
+            return BadRequest("這個規格已經被購物車或訂單使用過，不能刪除");
+        }
+
+        _context.GroupProductSpecification.Remove(spec);
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
 }
