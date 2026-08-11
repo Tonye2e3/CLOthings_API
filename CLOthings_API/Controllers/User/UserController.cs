@@ -1,18 +1,23 @@
+using CLOthings.Enums;
 using CLOthings_API.DTO.User;
 using CLOthings_API.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using CLOthings.Enums;
-
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
 
 [Route("api/[controller]")]
 [ApiController]
 public class UserController : ControllerBase
 {
     private readonly CLOthingsContext _context;
-    public UserController(CLOthingsContext context)
+    private readonly IConfiguration _configuration;
+    public UserController(CLOthingsContext context, IConfiguration configuration)
     {
         _context = context;
+        _configuration = configuration;
     }
 
     // GET: api/User
@@ -118,8 +123,33 @@ public class UserController : ControllerBase
         if (user == null)
             return Unauthorized("帳號或密碼錯誤");
 
+        var role = ((UserTypeEnum)user.UserType).ToString();
+
+        var claims = new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier,user.UserId.ToString()),
+            new Claim(ClaimTypes.Name,user.Username),
+            new Claim("account",user.Account),
+            new Claim(ClaimTypes.Role,role)
+        };
+
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]!));
+
+        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+        var token = new JwtSecurityToken(
+            issuer: _configuration["Jwt:Issuer"],
+            audience: _configuration["Jwt:Audience"],
+            claims: claims,
+            expires: DateTime.UtcNow.AddHours(2),
+            signingCredentials: credentials
+        );
+
+        var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
+
         return Ok(new
         {
+            token = tokenString,
             name = user.Username,
             account = user.Account,
             role = ((UserTypeEnum)user.UserType).ToString()
