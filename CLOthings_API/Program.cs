@@ -41,6 +41,8 @@ app.UseCors("AllowFrontend");
 
 app.UseHttpsRedirection();
 
+app.UseStaticFiles();
+
 app.UseAuthorization();
 
 app.MapControllers();
