@@ -101,6 +101,9 @@ public class GroupCartController : ControllerBase
 
         await _context.SaveChangesAsync();
 
+        // 埋點：每次成功加入購物車，就把今天這個商品的加入購物車次數 +1
+        await IncrementStatAsync(dto.GroupProductId, s => s.AddCartCount = (s.AddCartCount ?? 0) + 1);
+
         var orderedQtyMap = await GetOrderedQtyMapAsync();
         var tierMap = await _context.GroupDiscountStandard.Where(t => t.GroupProductId == dto.GroupProductId).ToListAsync();
         var (unitPrice, unlocked) = ComputeUnitPrice(product, tierMap, orderedQtyMap, dto.GroupProductId, existing.Quantity);
@@ -171,6 +174,37 @@ public class GroupCartController : ControllerBase
             .GroupBy(d => d.GroupProductId)
             .Select(g => new { GroupProductId = g.Key, Qty = g.Sum(x => x.Quantity) })
             .ToDictionaryAsync(x => x.GroupProductId, x => x.Qty);
+    }
+
+    // 埋點小工具：找出「今天」這個商品的統計列，沒有就新增一筆，再依傳進來的方式累加對應欄位
+    private async Task IncrementStatAsync(int productId, Action<GroupSellerStatistic> increment)
+    {
+        var today = DateTimeOffset.Now.Date;
+        var stat = await _context.GroupSellerStatistic.FirstOrDefaultAsync(s =>
+            s.GroupProductId == productId &&
+            s.StatisticDate.HasValue &&
+            s.StatisticDate.Value.Date == today);
+
+        if (stat == null)
+        {
+            var product = await _context.GroupProduct.FindAsync(productId);
+            if (product == null) return;
+
+            stat = new GroupSellerStatistic
+            {
+                GroupProductId = productId,
+                GroupSupplierId = product.GroupSupplierId,
+                AddCartCount = 0,
+                CheckoutCount = 0,
+                ViewCount = 0,
+                FavorCount = 0,
+                StatisticDate = DateTimeOffset.Now
+            };
+            _context.GroupSellerStatistic.Add(stat);
+        }
+
+        increment(stat);
+        await _context.SaveChangesAsync();
     }
 
     // 依「已成立訂單件數 + 這筆購物車件數」算出目前應該用的團購單價

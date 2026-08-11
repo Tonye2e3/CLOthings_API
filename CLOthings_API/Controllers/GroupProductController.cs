@@ -52,6 +52,9 @@ public class GroupProductController : ControllerBase
             return NotFound();
         }
 
+        // 埋點：每次有人打開商品詳情頁，就把今天這個商品的瀏覽次數 +1
+        await IncrementStatAsync(id, s => s.ViewCount = (s.ViewCount ?? 0) + 1);
+
         var orderedQtyMap = await GetOrderedQtyMapAsync();
         var tiers = await _context.GroupDiscountStandard
             .Where(t => t.GroupProductId == id)
@@ -104,6 +107,37 @@ public class GroupProductController : ControllerBase
             .GroupBy(d => d.GroupProductId)
             .Select(g => new { GroupProductId = g.Key, Qty = g.Sum(x => x.Quantity) })
             .ToDictionaryAsync(x => x.GroupProductId, x => x.Qty);
+    }
+
+    // 埋點小工具：找出「今天」這個商品的統計列，沒有就新增一筆，再依傳進來的方式累加對應欄位
+    private async Task IncrementStatAsync(int productId, Action<GroupSellerStatistic> increment)
+    {
+        var today = DateTimeOffset.Now.Date;
+        var stat = await _context.GroupSellerStatistic.FirstOrDefaultAsync(s =>
+            s.GroupProductId == productId &&
+            s.StatisticDate.HasValue &&
+            s.StatisticDate.Value.Date == today);
+
+        if (stat == null)
+        {
+            var product = await _context.GroupProduct.FindAsync(productId);
+            if (product == null) return; // 商品不存在就不用記統計了
+
+            stat = new GroupSellerStatistic
+            {
+                GroupProductId = productId,
+                GroupSupplierId = product.GroupSupplierId,
+                AddCartCount = 0,
+                CheckoutCount = 0,
+                ViewCount = 0,
+                FavorCount = 0,
+                StatisticDate = DateTimeOffset.Now
+            };
+            _context.GroupSellerStatistic.Add(stat);
+        }
+
+        increment(stat);
+        await _context.SaveChangesAsync();
     }
 
     // ================= 以下是管理端（商品上架/編輯/下架 + 階層 + 規格）的 API =================

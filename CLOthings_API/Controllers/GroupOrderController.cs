@@ -94,6 +94,9 @@ public class GroupOrderController : ControllerBase
             {
                 UserId = dto.UserId,
                 Provider = dto.PaymentMethod,
+                Token = "N/A", // 資料庫這個欄位是 NOT NULL，目前沒有真的串金流所以沒有真正的 token，先用佔位值頂著
+                CardBrand = dto.PaymentMethod, // 同上，資料庫這個欄位是 NOT NULL
+                ExpireAt = "9999/12", // 同上，資料庫這個欄位是 NOT NULL 且是字串型別
                 IsDefault = false
             };
             _context.GroupPaymentMethod.Add(paymentMethod);
@@ -134,6 +137,12 @@ public class GroupOrderController : ControllerBase
         _context.GroupCart.RemoveRange(cartItems);
 
         await _context.SaveChangesAsync();
+
+        // 埋點：結帳成功後，這筆訂單裡買到的每個商品，今天的結帳次數各 +1
+        foreach (var p in priced)
+        {
+            await IncrementStatAsync(p.Cart.GroupProductId, s => s.CheckoutCount = (s.CheckoutCount ?? 0) + 1);
+        }
 
         // 重新查一次，把 GroupProduct 名稱帶進來組成回傳的 DTO
         var saved = await _context.GroupOrder
@@ -297,6 +306,37 @@ public class GroupOrderController : ControllerBase
             ShipperName = o.GroupShipper != null ? o.GroupShipper.ShipperName : null,
             ShipperDate = o.ShipperDate.HasValue ? o.ShipperDate.Value.ToString("yyyy/MM/dd") : null
         };
+    }
+
+    // 埋點小工具：找出「今天」這個商品的統計列，沒有就新增一筆，再依傳進來的方式累加對應欄位
+    private async Task IncrementStatAsync(int productId, Action<GroupSellerStatistic> increment)
+    {
+        var today = DateTimeOffset.Now.Date;
+        var stat = await _context.GroupSellerStatistic.FirstOrDefaultAsync(s =>
+            s.GroupProductId == productId &&
+            s.StatisticDate.HasValue &&
+            s.StatisticDate.Value.Date == today);
+
+        if (stat == null)
+        {
+            var product = await _context.GroupProduct.FindAsync(productId);
+            if (product == null) return;
+
+            stat = new GroupSellerStatistic
+            {
+                GroupProductId = productId,
+                GroupSupplierId = product.GroupSupplierId,
+                AddCartCount = 0,
+                CheckoutCount = 0,
+                ViewCount = 0,
+                FavorCount = 0,
+                StatisticDate = DateTimeOffset.Now
+            };
+            _context.GroupSellerStatistic.Add(stat);
+        }
+
+        increment(stat);
+        await _context.SaveChangesAsync();
     }
 
     // ---- 以下是把 GroupOrder 轉成前端要的 DTO 格式 ----
