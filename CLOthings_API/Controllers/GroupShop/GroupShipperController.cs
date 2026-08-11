@@ -52,4 +52,43 @@ public class GroupShipperController : ControllerBase
             Address = shipper.Address
         });
     }
+
+    // PUT: api/GroupShipper/5
+    [HttpPut("{id}")]
+    public async Task<IActionResult> UpdateShipper(int id, SaveGroupShipperDTO dto)
+    {
+        var shipper = await _context.GroupShipper.FindAsync(id);
+        if (shipper == null)
+        {
+            return NotFound();
+        }
+
+        shipper.ShipperName = dto.ShipperName;
+        shipper.Email = dto.Email;
+        shipper.Address = dto.Address;
+        await _context.SaveChangesAsync();
+
+        return NoContent();
+    }
+
+    // DELETE: api/GroupShipper/5
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> DeleteShipper(int id)
+    {
+        var shipper = await _context.GroupShipper.FindAsync(id);
+        if (shipper == null)
+        {
+            return NotFound();
+        }
+
+        var inUse = await _context.GroupOrder.AnyAsync(o => o.GroupShipperId == id);
+        if (inUse)
+        {
+            return BadRequest("這個物流商已經有訂單在使用，不能刪除");
+        }
+
+        _context.GroupShipper.Remove(shipper);
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
 }
