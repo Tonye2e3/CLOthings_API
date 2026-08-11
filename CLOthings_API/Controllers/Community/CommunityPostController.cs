@@ -140,6 +140,65 @@ public class CommunityPostController : ControllerBase
             .ToListAsync();
     }
 
+    // GET: api/CommunityPost/similar/5
+    // 找「跟這篇貼文標記過同一個商品」的其他貼文，PostDetailView.vue「相似穿搭推薦」要用這個。
+    // 完全只靠 Post_Tagged_Product 自己這張表就能查，不需要碰 Product 表。
+    // 分兩步查：
+    // 1. 先找出這篇貼文標記過哪些商品（taggedProductIds）。
+    // 2. 再找「標記過同一批商品、但不是自己這篇」的貼文 id（用 Distinct 去重複，因為
+    //    一篇貼文可能同時標記了兩個以上一樣的商品，會被抓到兩次），最多抓 3 篇。
+    [HttpGet("similar/{communitypostid}")]
+    public async Task<IEnumerable<CommunityPostDTO>> GetSimilarCommunityPost(int communitypostid)
+    {
+        var taggedProductIds = await _context.PostTaggedProduct
+            .Where(t => t.CommunityPostId == communitypostid)
+            .Select(t => t.ProductId)
+            .ToListAsync();
+
+        var similarPostIds = await _context.PostTaggedProduct
+            .Where(t => taggedProductIds.Contains(t.ProductId) && t.CommunityPostId != communitypostid)
+            .Select(t => t.CommunityPostId)
+            .Distinct()
+            .Take(3)
+            .ToListAsync();
+
+        return await _context.CommunityPost
+            .Where(c => similarPostIds.Contains(c.CommunityPostId))
+            .Select(c => new CommunityPostDTO
+            {
+                CommunityPostId = c.CommunityPostId,
+                UserId = c.UserId,
+                Content = c.Content,
+                PostDate = c.PostDate,
+                Status = c.Status,
+                User = new UserSummaryDTO
+                {
+                    UserId = c.User.UserId,
+                    Name = c.User.Username,
+                    Avatar = c.User.UserProfile.Select(p => p.Avatar).FirstOrDefault()
+                },
+                Images = c.PostImage
+                    .OrderBy(i => i.SortOrder)
+                    .Select(i => new PostImageDTO
+                    {
+                        PostImageId = i.PostImageId,
+                        ImageFileName = i.ImageFileName,
+                        SortOrder = i.SortOrder
+                    }).ToList(),
+                LikesCount = c.PostLike.Count(),
+                CommentsCount = c.PostComment.Count(),
+                TaggedProducts = c.PostTaggedProduct
+                    .Select(t => new TaggedProductDTO
+                    {
+                        PostTaggedProductId = t.PostTaggedProductId,
+                        ProductId = t.ProductId,
+                        ProductRoute = t.ProductRoute,
+                        Name = t.Product.ProductName
+                    }).ToList()
+            })
+            .ToListAsync();
+    }
+
     // PUT: api/CommunityPost/5
     [HttpPut("{communitypostid}")]
     public async Task<ResultDTO> PutCommunityPost(int? communitypostid, CommunityPostDTO communitypostDTO)
