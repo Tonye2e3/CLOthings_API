@@ -117,7 +117,13 @@ public class UserController : ControllerBase
         if (user == null)
             return Unauthorized("帳號或密碼錯誤");
 
-        return Ok("登入成功");
+        return Ok(new
+        {
+            name = user.Username,
+            account = user.Account,
+            usertype = user.UserType
+        }
+            );
     }
 }
 
