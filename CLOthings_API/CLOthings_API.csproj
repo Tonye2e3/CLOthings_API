@@ -21,7 +21,6 @@
     <Folder Include="Controllers\Shop\" />
     <Folder Include="DTOs\GroupShop\" />
     <Folder Include="DTOs\Shop\" />
-    <Folder Include="wwwroot\images\posts\" />
   </ItemGroup>
 
 </Project>

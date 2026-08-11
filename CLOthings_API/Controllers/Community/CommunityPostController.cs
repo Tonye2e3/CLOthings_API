@@ -12,6 +12,55 @@ public class CommunityPostController : ControllerBase
         _context = context;
     }
 
+    // POST: api/CommunityPost/upload-images
+    // 真正的圖片上傳：把使用者選的照片存進 wwwroot/images/posts/，回傳存好之後的路徑清單。
+    // 前端流程是「先呼叫這支把照片存好、拿到路徑」，再把這些路徑帶進 PostCommunityPost／
+    // PutCommunityPost 的 images 清單裡存進資料庫——這支本身不會動 Community_Post 或 Post_Image 這兩張表。
+    // 檔名用 Guid.NewGuid() 重新命名（不是用使用者上傳時的原始檔名），避免不同使用者
+    // 剛好選了同名的檔案（例如兩個人都上傳 "photo.jpg"）互相覆蓋掉對方的圖片。
+    [HttpPost("upload-images")]
+    public async Task<ActionResult<List<string>>> UploadImages(List<IFormFile> files)
+    {
+        if (files == null || files.Count == 0)
+        {
+            return BadRequest();
+        }
+
+        // Directory.GetCurrentDirectory()：專案執行時的根目錄，Combine 起來就是 wwwroot/images/posts 的完整路徑。
+        var folder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "images", "posts");
+        if (!Directory.Exists(folder))
+        {
+            Directory.CreateDirectory(folder);
+        }
+
+        var savedPaths = new List<string>();
+
+        foreach (var file in files)
+        {
+            if (file.Length == 0)
+            {
+                continue; // 跳過空檔案，不要在資料夾裡留一個 0 byte 的檔案
+            }
+
+            // Path.GetExtension(file.FileName)：拿使用者上傳時的副檔名（例如 ".jpg"、".png"），
+            // 只留副檔名，檔名主體整個換成 Guid，這樣才不會撞名。
+            var extension = Path.GetExtension(file.FileName);
+            var newFileName = $"{Guid.NewGuid()}{extension}";
+            var fullPath = Path.Combine(folder, newFileName);
+
+            using (var stream = new FileStream(fullPath, FileMode.Create))
+            {
+                await file.CopyToAsync(stream);
+            }
+
+            // 回傳的是「相對路徑」（例如 /images/posts/xxx.jpg），跟資料庫 Post_Image.ImageFileName
+            // 存的格式一致，前端組網址時直接接在 API_BASE 後面就能用，跟其他地方的做法一樣。
+            savedPaths.Add($"/images/posts/{newFileName}");
+        }
+
+        return Ok(savedPaths);
+    }
+
     // GET: api/CommunityPost
     [HttpGet]
     public async Task<IEnumerable<CommunityPostDTO>> GetCommunityPost()
@@ -215,11 +264,34 @@ public class CommunityPostController : ControllerBase
         }
         else
         {
-            // 只更新使用者實際能編輯的欄位（Content、Status、TaggedProducts），
-            // User、Images、LikesCount 這些是查詢時組出來的「唯讀資訊」，不能拿來寫回資料庫。
+            // 只更新使用者實際能編輯的欄位（Content、Status、Images、TaggedProducts），
+            // User、LikesCount、CommentsCount 這些是查詢時組出來的「唯讀資訊」，不能拿來寫回資料庫。
             post.Content = communitypostDTO.Content;
             post.Status = communitypostDTO.Status;
             _context.Entry(post).State = EntityState.Modified;
+
+            // 圖片也用「先刪光、再照 DTO 傳來的清單重新新增」的方式同步，跟標記商品是同一種寫法。
+            // 注意：這裡只是刪掉／重新新增資料庫裡的紀錄（存的是檔名／路徑字串），
+            // 不會動到 wwwroot 底下真正的圖片檔案本身——如果之後圖片檔案是真的上傳上去的，
+            // 換照片時舊檔案會變成沒有任何資料庫紀錄指到的「孤兒檔案」，留在硬碟上沒被刪掉，
+            // 這部分要等真正的圖片上傳功能做好後再一起處理，這裡先不管。
+            var oldImages = _context.PostImage.Where(i => i.CommunityPostId == post.CommunityPostId);
+            _context.PostImage.RemoveRange(oldImages);
+
+            if (communitypostDTO.Images != null)
+            {
+                foreach (var img in communitypostDTO.Images)
+                {
+                    PostImage postImage = new PostImage
+                    {
+                        PostImageId = 0,
+                        CommunityPostId = post.CommunityPostId,
+                        ImageFileName = img.ImageFileName,
+                        SortOrder = img.SortOrder
+                    };
+                    _context.PostImage.Add(postImage);
+                }
+            }
 
             // 標記商品用「先刪光、再照 DTO 傳來的清單重新新增」的方式同步，
             // 不用一筆一筆比對誰是新增的、誰是刪除的，跟 POST 那邊新增的寫法保持一致風格。
