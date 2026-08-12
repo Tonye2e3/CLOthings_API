@@ -57,6 +57,59 @@ public class UserFollowController : ControllerBase
         };
     }
 
+    // GET: api/UserFollow/popular-creators?take=3&followerId=1
+    // 找「粉絲數最多的前幾名」使用者，CommunityView.vue 側欄「熱門穿搭達人」要用這個。
+    // take：要抓前幾名。followerId：目前登入的測試帳號 id，用來判斷這幾位「我」有沒有追蹤過，
+    // 這樣清單裡每個人的追蹤按鈕才能一開始就顯示正確的狀態。
+    [HttpGet("popular-creators")]
+    public async Task<IEnumerable<CreatorDTO>> GetPopularCreators(int take, int followerId)
+    {
+        // 第一步：依 FollowingId 分組（每一組就是「某個人的所有粉絲」），
+        // 算出每組有幾筆（= 這個人的粉絲數），依粉絲數由多到少排序，取前 take 名。
+        var grouped = await _context.UserFollow
+            .GroupBy(f => f.FollowingId)
+            .Select(g => new { UserId = g.Key, FollowersCount = g.Count() })
+            .OrderByDescending(g => g.FollowersCount)
+            .Take(take)
+            .ToListAsync();
+
+        var userIds = grouped.Select(g => g.UserId).ToList();
+
+        // 第二步：拿這幾個 userId，去 User 表查真正的名字、大頭貼。
+        var users = await _context.User
+            .Where(u => userIds.Contains(u.UserId))
+            .Select(u => new
+            {
+                u.UserId,
+                u.Username,
+                Avatar = u.UserProfile.Select(p => p.Avatar).FirstOrDefault()
+            })
+            .ToListAsync();
+
+        // 第三步：查「我」（followerId）已經追蹤了這幾個人裡的哪幾個，
+        // 連 userFollowId 一起帶回來，之後要取消追蹤才不用另外再查一次。
+        var myFollows = await _context.UserFollow
+            .Where(f => f.FollowerId == followerId && userIds.Contains(f.FollowingId))
+            .Select(f => new { f.FollowingId, f.UserFollowId })
+            .ToListAsync();
+
+        // 第四步：把上面三步的結果組合成最終要回傳的 CreatorDTO 清單。
+        return grouped.Select(g =>
+        {
+            var user = users.FirstOrDefault(u => u.UserId == g.UserId);
+            var myFollow = myFollows.FirstOrDefault(f => f.FollowingId == g.UserId);
+            return new CreatorDTO
+            {
+                UserId = g.UserId,
+                Name = user != null ? user.Username : "未知使用者",
+                Avatar = user != null ? user.Avatar : null,
+                FollowersCount = g.FollowersCount,
+                IsFollowing = myFollow != null,
+                UserFollowId = myFollow?.UserFollowId
+            };
+        });
+    }
+
     // POST: api/UserFollow
     // 追蹤：新增一筆 User_Follow 紀錄。
     [HttpPost]
