@@ -7,6 +7,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using Microsoft.AspNetCore.Authorization;
 
 [Route("api/[controller]")]
 [ApiController]
@@ -22,6 +23,7 @@ public class UserController : ControllerBase
 
     // GET: api/User
     [HttpGet]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult<IEnumerable<UserDTO>>> GetUser()
     {
         var users = await _context.User.Select(e => new UserDTO
@@ -29,7 +31,6 @@ public class UserController : ControllerBase
             UserId = e.UserId,
             Username = e.Username,
             Account = e.Account,
-            Password = e.Password,
             Email = e.Email,
             Phone = e.Phone,
         }).ToListAsync();
@@ -155,6 +156,43 @@ public class UserController : ControllerBase
             role = ((UserTypeEnum)user.UserType).ToString()
         }
             );
+    }
+
+    // GET: api/User/me
+    [HttpGet("me")]
+    [Authorize]
+    public async Task<ActionResult> GetMe()
+    {
+        // 從 JWT 取得目前登入者的 UserId
+        var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+        // JWT 裡沒有 UserId 或格式錯誤
+        if (!int.TryParse(userIdValue, out var userId))
+        {
+            return Unauthorized();
+        }
+
+        // 用 UserId 查資料庫
+        var user = await _context.User
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.UserId == userId);
+
+        if (user == null)
+        {
+            return NotFound();
+        }
+
+        // 只回傳前端需要的資料
+        return Ok(new
+        {
+            userId = user.UserId,
+            username = user.Username,
+            account = user.Account,
+            email = user.Email,
+            phone = user.Phone,
+            countryCode = user.CountryCode,
+            twoFactorEnabled = user.TwoFactorEnabled
+        });
     }
 }
 
