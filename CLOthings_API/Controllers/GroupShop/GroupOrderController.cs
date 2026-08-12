@@ -66,7 +66,7 @@ public class GroupOrderController : ControllerBase
         }
 
         var orderedQtyMap = await _context.GroupOrderDetail
-            .Where(d => d.GroupOrder.Status != "已取消")
+            .Where(d => !d.GroupOrder.Status.Contains("取消"))
             .GroupBy(d => d.GroupProductId)
             .Select(g => new { GroupProductId = g.Key, Qty = g.Sum(x => x.Quantity) })
             .ToDictionaryAsync(x => x.GroupProductId, x => x.Qty);
@@ -198,7 +198,7 @@ public class GroupOrderController : ControllerBase
         order.ShipName = dto.ShipName;
 
         var orderedQtyMap = await _context.GroupOrderDetail
-            .Where(d => d.GroupOrder.Status != "已取消" && d.GroupOrderId != orderId)
+            .Where(d => !d.GroupOrder.Status.Contains("取消") && d.GroupOrderId != orderId)
             .GroupBy(d => d.GroupProductId)
             .Select(g => new { GroupProductId = g.Key, Qty = g.Sum(x => x.Quantity) })
             .ToDictionaryAsync(x => x.GroupProductId, x => x.Qty);

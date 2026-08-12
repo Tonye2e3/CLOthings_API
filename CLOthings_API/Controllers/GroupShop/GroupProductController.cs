@@ -103,7 +103,7 @@ public class GroupProductController : ControllerBase
     private async Task<Dictionary<int, int>> GetOrderedQtyMapAsync()
     {
         return await _context.GroupOrderDetail
-            .Where(d => d.GroupOrder.Status != "已取消")
+            .Where(d => !d.GroupOrder.Status.Contains("取消"))
             .GroupBy(d => d.GroupProductId)
             .Select(g => new { GroupProductId = g.Key, Qty = g.Sum(x => x.Quantity) })
             .ToDictionaryAsync(x => x.GroupProductId, x => x.Qty);
@@ -252,8 +252,15 @@ public class GroupProductController : ControllerBase
     [HttpGet("{id}/tiers")]
     public async Task<ActionResult<IEnumerable<TierAdminDTO>>> GetTiers(int id)
     {
-        var tiers = await _context.GroupDiscountStandard
+        // 注意：要先 ToListAsync() 把資料抓回記憶體，才能在 Select() 裡呼叫 ParseThresholdCount()。
+        // 原本寫法是整條 LINQ 鏈（Where→Select→OrderBy→ToListAsync）都還是 IQueryable，
+        // EF Core 會試著把 Select 裡的 ParseThresholdCount(...) 翻譯成 SQL，
+        // 但它是一般 C# 方法、無法翻譯，因此不管有沒有資料都會直接丟例外、回傳 500。
+        var rawTiers = await _context.GroupDiscountStandard
             .Where(t => t.GroupProductId == id)
+            .ToListAsync();
+
+        var tiers = rawTiers
             .Select(t => new TierAdminDTO
             {
                 GroupDiscountStandardId = t.GroupDiscountStandardId,
@@ -262,7 +269,7 @@ public class GroupProductController : ControllerBase
                 DiscountRate = t.DiscountRate ?? 1m
             })
             .OrderBy(t => t.ThresholdCount)
-            .ToListAsync();
+            .ToList();
 
         return Ok(tiers);
     }

@@ -170,7 +170,7 @@ public class GroupCartController : ControllerBase
     private async Task<Dictionary<int, int>> GetOrderedQtyMapAsync()
     {
         return await _context.GroupOrderDetail
-            .Where(d => d.GroupOrder.Status != "已取消")
+            .Where(d => !d.GroupOrder.Status.Contains("取消"))
             .GroupBy(d => d.GroupProductId)
             .Select(g => new { GroupProductId = g.Key, Qty = g.Sum(x => x.Quantity) })
             .ToDictionaryAsync(x => x.GroupProductId, x => x.Qty);
