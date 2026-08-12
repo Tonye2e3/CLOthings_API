@@ -92,16 +92,54 @@ public class UserController : ControllerBase
     // POST: api/User
     // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
     [HttpPost]
-    public async Task<ActionResult<User>> PostUser(User user)
+    public async Task<ActionResult> PostUser(RegisterDTO dto)
     {
-        // 將使用者輸入的密碼轉成 Hash
-        user.Password = _passwordHasher.HashPassword(user, user.Password);
+        // 先檢查帳號是否已存在
+        var accountExists = await _context.User
+            .AnyAsync(u => u.Account == dto.Account);
 
-        // 存入資料庫
+        if (accountExists)
+        {
+            return Conflict("帳號已存在");
+        }
+
+        // 建立新的 User
+        var user = new User
+        {
+            Username = dto.Username,
+            Account = dto.Account,
+            Email = dto.Email,
+            Phone = dto.Phone,
+
+            // 後端決定，不相信前端
+            UserType = (int)UserTypeEnum.User,
+            Status = (int)StatusEnum.Active,
+
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+
+        // 密碼 Hash
+        user.Password = _passwordHasher.HashPassword(
+            user,
+            dto.Password
+        );
+
         _context.User.Add(user);
         await _context.SaveChangesAsync();
 
-        return CreatedAtAction("GetUser", new { userid = user.UserId }, user);
+        return CreatedAtAction(
+            nameof(GetUser),
+            new { userid = user.UserId },
+            new
+            {
+                userId = user.UserId,
+                username = user.Username,
+                account = user.Account,
+                email = user.Email,
+                phone = user.Phone
+            }
+        );
     }
 
     // DELETE: api/User/5
@@ -305,31 +343,7 @@ public class UserController : ControllerBase
         return NoContent();
     }
 
-    // ⚠️ 開發階段暫時使用，成功後立刻刪除
-    [HttpPost("reset-superadmin-password")]
-    public async Task<IActionResult> ResetSuperAdminPassword()
-    {
-        var user = await _context.User
-            .FirstOrDefaultAsync(u => u.Account == "superAdmin");
-
-        if (user == null)
-        {
-            return NotFound("找不到 superAdmin");
-        }
-
-        // 暫時設定一組你知道的密碼
-        var newPassword = "superAdmin";
-
-        // 新密碼轉成 Hash
-        user.Password = _passwordHasher.HashPassword(
-            user,
-            newPassword
-        );
-
-        await _context.SaveChangesAsync();
-
-        return Ok("superAdmin 密碼已重設");
-    }
+    
 }
 
 
