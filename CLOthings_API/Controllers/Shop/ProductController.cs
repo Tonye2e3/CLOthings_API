@@ -1,4 +1,5 @@
 ﻿using CLOthings_API.DTOs;
+using CLOthings_API.DTOs.Shop;
 using CLOthings_API.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -31,6 +32,7 @@ namespace CLOthings_API.Controllers.Shop
                     Description = p.Description,
                     Status = p.Status,
                     ProductImgFile=p.ProductImg.Select(img=> img.ProductImgFile).FirstOrDefault(),
+                    ProductCategoryId = p.ProductCategoryId,
                 })
                 .ToListAsync();
 

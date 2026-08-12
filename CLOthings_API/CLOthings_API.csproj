@@ -17,7 +17,6 @@
     <Folder Include="Controllers\GroupShop\" />
     <Folder Include="DTOs\Community\" />
     <Folder Include="DTOs\GroupShop\" />
-    <Folder Include="DTOs\Shop\" />
   </ItemGroup>
 
 </Project>
