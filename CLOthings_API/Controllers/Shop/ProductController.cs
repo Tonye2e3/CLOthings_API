@@ -1,4 +1,5 @@
-﻿using CLOthings_API.Models;
+﻿using CLOthings_API.DTOs;
+using CLOthings_API.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -21,7 +22,17 @@ namespace CLOthings_API.Controllers.Shop
         [HttpGet] //這個方法對應GET請求
         public async Task<IActionResult> GetProducts() { 
             //從DB撈所有商品
-            var products = await _context.Product.ToListAsync();
+            var products = await _context.Product
+                .Include(p=>p.ProductImg)
+                .Select(p=> new ProductDto {
+                    ProductId = p.ProductId,
+                    ProductName= p.ProductName,
+                    Price = p.Price,
+                    Description = p.Description,
+                    Status = p.Status,
+                    ProductImgFile=p.ProductImg.Select(img=> img.ProductImgFile).FirstOrDefault(),
+                })
+                .ToListAsync();
 
             //回傳商品清單，並自動轉JSON
             return Ok(products);
