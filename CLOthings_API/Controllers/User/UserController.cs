@@ -125,7 +125,25 @@ public class UserController : ControllerBase
             dto.Password
         );
 
+        // 先建立 User
         _context.User.Add(user);
+        await _context.SaveChangesAsync();
+
+        // 再建立空的 UserProfile
+        var profile = new UserProfile
+        {
+            UserId = user.UserId,
+
+            FirstName = null,
+            LastName = null,
+            Avatar = null,
+            Gender = null,
+            Birthday = null,
+            StyleTag = null,
+            Intro = null
+        };
+
+        _context.UserProfile.Add(profile);
         await _context.SaveChangesAsync();
 
         return CreatedAtAction(
@@ -343,7 +361,7 @@ public class UserController : ControllerBase
         return NoContent();
     }
 
-    
+
 }
 
 
