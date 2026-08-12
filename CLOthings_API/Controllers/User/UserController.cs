@@ -1,13 +1,16 @@
 using CLOthings.Enums;
 using CLOthings_API.DTO.User;
+using CLOthings_API.DTOs;
 using CLOthings_API.Models;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using Microsoft.AspNetCore.Authorization;
+
 
 [Route("api/[controller]")]
 [ApiController]
@@ -15,10 +18,14 @@ public class UserController : ControllerBase
 {
     private readonly CLOthingsContext _context;
     private readonly IConfiguration _configuration;
-    public UserController(CLOthingsContext context, IConfiguration configuration)
+    private readonly IPasswordHasher<User> _passwordHasher;
+
+    public UserController(CLOthingsContext context, IConfiguration configuration, IPasswordHasher<User> passwordHasher)
     {
         _context = context;
         _configuration = configuration;
+        _passwordHasher = passwordHasher;
+
     }
 
     // GET: api/User
@@ -87,6 +94,10 @@ public class UserController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<User>> PostUser(User user)
     {
+        // 將使用者輸入的密碼轉成 Hash
+        user.Password = _passwordHasher.HashPassword(user, user.Password);
+
+        // 存入資料庫
         _context.User.Add(user);
         await _context.SaveChangesAsync();
 
@@ -114,20 +125,39 @@ public class UserController : ControllerBase
         return _context.User.Any(e => e.UserId == userid);
     }
 
+
+
     // POST: api/User/login
     [HttpPost("login")]
     public async Task<ActionResult> Login(LoginDTO dto)
     {
+        // 先根據帳號找使用者
         var user = await _context.User
-            .FirstOrDefaultAsync(u => u.Account == dto.Account && u.Password == dto.Password);
+            .FirstOrDefaultAsync(u => u.Account == dto.Account);
 
         if (user == null)
             return Unauthorized("帳號或密碼錯誤");
 
+        // 驗證使用者輸入的密碼是否符合資料庫中的 Password Hash
+        var passwordResult = _passwordHasher.VerifyHashedPassword(
+            user,
+            user.Password,
+            dto.Password
+        );
+
+        if (passwordResult == PasswordVerificationResult.Failed)
+        {
+            return Unauthorized("帳號或密碼錯誤");
+        }
+
+        // 後面 JWT...
         var role = ((UserTypeEnum)user.UserType).ToString();
 
+
+
+
         var claims = new[]
-        {
+            {
             new Claim(ClaimTypes.NameIdentifier,user.UserId.ToString()),
             new Claim(ClaimTypes.Name,user.Username),
             new Claim("account",user.Account),
@@ -193,6 +223,112 @@ public class UserController : ControllerBase
             countryCode = user.CountryCode,
             twoFactorEnabled = user.TwoFactorEnabled
         });
+    }
+
+    // PUT: api/User/me
+    [HttpPut("me")]
+    [Authorize]
+    public async Task<IActionResult> PutMe(UpdateUserDTO dto)
+    {
+        // 1. 從 JWT 取得目前登入者的 UserId
+        var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+        if (!int.TryParse(userIdValue, out var userId))
+        {
+            return Unauthorized();
+        }
+
+        // 2. 從資料庫找到目前登入者
+        var user = await _context.User
+            .FirstOrDefaultAsync(u => u.UserId == userId);
+
+        if (user == null)
+        {
+            return NotFound();
+        }
+
+        // 3. 修改允許會員自己修改的欄位
+        user.Username = dto.Username;
+        user.Email = dto.Email;
+        user.Phone = dto.Phone;
+        user.CountryCode = dto.CountryCode;
+
+        // 4. 儲存到資料庫
+        await _context.SaveChangesAsync();
+
+        return NoContent();
+    }
+
+    // PUT: api/User/me/password
+    [HttpPut("me/password")]
+    [Authorize]
+    public async Task<IActionResult> ChangePassword(ChangePasswordDTO dto)
+    {
+        // 1. 從 JWT 取得目前登入者 UserId
+        var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+        if (!int.TryParse(userIdValue, out var userId))
+        {
+            return Unauthorized();
+        }
+
+        // 2. 從資料庫找到目前登入者
+        var user = await _context.User
+            .FirstOrDefaultAsync(u => u.UserId == userId);
+
+        if (user == null)
+        {
+            return NotFound();
+        }
+
+        // 3. 驗證目前密碼是否正確
+        var passwordResult = _passwordHasher.VerifyHashedPassword(
+            user,
+            user.Password,
+            dto.CurrentPassword
+        );
+
+        if (passwordResult == PasswordVerificationResult.Failed)
+        {
+            return BadRequest("目前密碼錯誤");
+        }
+
+        // 4. 將新密碼轉成 Hash
+        user.Password = _passwordHasher.HashPassword(
+            user,
+            dto.NewPassword
+        );
+
+        // 5. 儲存到資料庫
+        await _context.SaveChangesAsync();
+
+        return NoContent();
+    }
+
+    // ⚠️ 開發階段暫時使用，成功後立刻刪除
+    [HttpPost("reset-superadmin-password")]
+    public async Task<IActionResult> ResetSuperAdminPassword()
+    {
+        var user = await _context.User
+            .FirstOrDefaultAsync(u => u.Account == "superAdmin");
+
+        if (user == null)
+        {
+            return NotFound("找不到 superAdmin");
+        }
+
+        // 暫時設定一組你知道的密碼
+        var newPassword = "superAdmin";
+
+        // 新密碼轉成 Hash
+        user.Password = _passwordHasher.HashPassword(
+            user,
+            newPassword
+        );
+
+        await _context.SaveChangesAsync();
+
+        return Ok("superAdmin 密碼已重設");
     }
 }
 
