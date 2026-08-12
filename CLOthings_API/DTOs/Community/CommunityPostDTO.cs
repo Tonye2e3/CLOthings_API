@@ -35,4 +35,5 @@ public class TaggedProductDTO
     public int ProductId { get; set; }
     public string? ProductRoute { get; set; }
     public string? Name { get; set; }
+    public decimal Price { get; set; }
 }

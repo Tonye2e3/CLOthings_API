@@ -94,7 +94,8 @@ public class CommunityPostController : ControllerBase
                     PostTaggedProductId = t.PostTaggedProductId,
                     ProductId = t.ProductId,
                     ProductRoute = t.ProductRoute,
-                    Name = t.Product.ProductName
+                    Name = t.Product.ProductName,
+                    Price = t.Product.Price
                 }).ToList()
         });
     }
@@ -134,7 +135,8 @@ public class CommunityPostController : ControllerBase
                         PostTaggedProductId = t.PostTaggedProductId,
                         ProductId = t.ProductId,
                         ProductRoute = t.ProductRoute,
-                        Name = t.Product.ProductName
+                        Name = t.Product.ProductName,
+                        Price = t.Product.Price
                     }).ToList()
             })
             .FirstOrDefaultAsync();
@@ -183,7 +185,8 @@ public class CommunityPostController : ControllerBase
                         PostTaggedProductId = t.PostTaggedProductId,
                         ProductId = t.ProductId,
                         ProductRoute = t.ProductRoute,
-                        Name = t.Product.ProductName
+                        Name = t.Product.ProductName,
+                        Price = t.Product.Price
                     }).ToList()
             })
             .ToListAsync();
@@ -242,7 +245,8 @@ public class CommunityPostController : ControllerBase
                         PostTaggedProductId = t.PostTaggedProductId,
                         ProductId = t.ProductId,
                         ProductRoute = t.ProductRoute,
-                        Name = t.Product.ProductName
+                        Name = t.Product.ProductName,
+                        Price = t.Product.Price
                     }).ToList()
             })
             .ToListAsync();
