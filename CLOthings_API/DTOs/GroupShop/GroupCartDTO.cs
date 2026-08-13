@@ -25,10 +25,9 @@
     }
 
     // 加入購物車時前端要傳的資料
+    // UserId 不再由前端傳入，後端一律從 JWT 取得，避免有人改 UserId 就能操作別人的購物車
     public class AddGroupCartDTO
     {
-        public int UserId { get; set; }
-
         public int GroupProductId { get; set; }
 
         // 選填：沒有指定的話，後端會自動挑該商品的第一個規格（目前前端還沒有尺寸/顏色選擇 UI）

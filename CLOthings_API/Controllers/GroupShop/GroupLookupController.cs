@@ -1,5 +1,6 @@
 using CLOthings_API.DTOs.GroupShop;
 using CLOthings_API.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -7,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 // 同時也是「新增/編輯商品」表單下拉選單的資料來源
 [Route("api/GroupLookup")]
 [ApiController]
+[Authorize(Roles = "Admin,SuperAdmin")] // 分類/供應商管理僅限管理員
 public class GroupLookupController : ControllerBase
 {
     private readonly CLOthingsContext _context;

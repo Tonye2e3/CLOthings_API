@@ -1,10 +1,12 @@
 ﻿using CLOthings_API.DTOs.GroupShop;
 using CLOthings_API.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 [Route("api/GroupSellerStatistic")]
 [ApiController]
+[Authorize(Roles = "Admin,SuperAdmin")] // 賣家端統計數據，僅限管理員查看
 public class GroupSellerStatisticController : ControllerBase
 {
     private readonly CLOthingsContext _context;

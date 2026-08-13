@@ -1,10 +1,13 @@
-﻿using CLOthings_API.DTOs.GroupShop;
+﻿using System.Security.Claims;
+using CLOthings_API.DTOs.GroupShop;
 using CLOthings_API.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 [Route("api/GroupCart")]
 [ApiController]
+[Authorize(Roles = "User,SuperAdmin")] // 購物車整支都是買家個人資料，需要先登入
 public class GroupCartController : ControllerBase
 {
     private readonly CLOthingsContext _context;
@@ -13,10 +16,21 @@ public class GroupCartController : ControllerBase
         _context = context;
     }
 
-    // GET: api/GroupCart/5   (5 是 userId)
-    [HttpGet("{userId}")]
-    public async Task<ActionResult<IEnumerable<GroupCartItemDTO>>> GetCart(int userId)
+    // 從 JWT 的 Claims 取得目前登入者的 UserId，不再讓前端（Vue）自己傳 UserId 過來
+    // 這個方法只能在已經掛 [Authorize] 的 Controller/Action 裡呼叫，否則 Claims 裡不會有這筆資料
+    private int GetUserId()
     {
+        var value = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        return int.TryParse(value, out var id) ? id : 0;
+    }
+
+    // GET: api/GroupCart
+    // UserId 一律從 JWT 取得，不再由前端指定，避免有人改 userId 就能看到別人的購物車
+    [HttpGet]
+    public async Task<ActionResult<IEnumerable<GroupCartItemDTO>>> GetCart()
+    {
+        var userId = GetUserId();
+
         var cartRows = await _context.GroupCart
             .Include(c => c.GroupProduct)
             .Where(c => c.UserId == userId)
@@ -55,6 +69,8 @@ public class GroupCartController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<GroupCartItemDTO>> AddToCart(AddGroupCartDTO dto)
     {
+        var userId = GetUserId();
+
         var product = await _context.GroupProduct.FindAsync(dto.GroupProductId);
         if (product == null)
         {
@@ -78,7 +94,7 @@ public class GroupCartController : ControllerBase
         }
 
         var existing = await _context.GroupCart.FirstOrDefaultAsync(c =>
-            c.UserId == dto.UserId &&
+            c.UserId == userId &&
             c.GroupProductId == dto.GroupProductId &&
             c.GroupProductSpecificationId == specificationId);
 
@@ -90,7 +106,7 @@ public class GroupCartController : ControllerBase
         {
             existing = new GroupCart
             {
-                UserId = dto.UserId,
+                UserId = userId,
                 GroupProductId = dto.GroupProductId,
                 GroupProductSpecificationId = specificationId.Value,
                 Quantity = dto.Quantity,
@@ -132,6 +148,12 @@ public class GroupCartController : ControllerBase
             return NotFound();
         }
 
+        // 只能改自己的購物車項目，避免有人拿別人的 groupCartId 亂改數量
+        if (cart.UserId != GetUserId())
+        {
+            return Forbid();
+        }
+
         // 數量至少為 1，避免傳 0 或負數進來
         cart.Quantity = Math.Max(1, dto.Quantity);
         await _context.SaveChangesAsync();
@@ -149,16 +171,23 @@ public class GroupCartController : ControllerBase
             return NotFound();
         }
 
+        // 只能刪自己的購物車項目
+        if (cart.UserId != GetUserId())
+        {
+            return Forbid();
+        }
+
         _context.GroupCart.Remove(cart);
         await _context.SaveChangesAsync();
 
         return NoContent();
     }
 
-    // DELETE: api/GroupCart/user/5   (5 是 userId)，結帳成功後清空購物車用
-    [HttpDelete("user/{userId}")]
-    public async Task<IActionResult> ClearCart(int userId)
+    // DELETE: api/GroupCart/me，結帳成功後清空「自己」購物車用，UserId 一樣從 JWT 取得
+    [HttpDelete("me")]
+    public async Task<IActionResult> ClearCart()
     {
+        var userId = GetUserId();
         var items = await _context.GroupCart.Where(c => c.UserId == userId).ToListAsync();
         _context.GroupCart.RemoveRange(items);
         await _context.SaveChangesAsync();
