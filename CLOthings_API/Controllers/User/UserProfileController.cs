@@ -28,14 +28,11 @@ namespace CLOthings_API.Controllers
         }
 
         // GET: api/UserProfile/me
-        [Authorize]
         [HttpGet("me")]
         public async Task<ActionResult> GetMyProfile()
         {
             // 從 JWT 取得目前登入會員的 UserId
-            var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-            if (!int.TryParse(userIdString, out var userId))
+            if (!TryGetCurrentUserId(out var userId))
             {
                 return Unauthorized();
             }
@@ -63,14 +60,11 @@ namespace CLOthings_API.Controllers
         }
 
         // PUT: api/UserProfile/me
-        [Authorize]
         [HttpPut("me")]
         public async Task<IActionResult> UpdateMyProfile(UserProfileDTO dto)
         {
             // 從 JWT 取得目前登入會員 UserId
-            var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-            if (!int.TryParse(userIdString, out var userId))
+            if (!TryGetCurrentUserId(out var userId))
             {
                 return Unauthorized();
             }
@@ -87,7 +81,6 @@ namespace CLOthings_API.Controllers
             // 更新資料
             profile.FirstName = dto.FirstName;
             profile.LastName = dto.LastName;
-            profile.Avatar = dto.Avatar;
             profile.Gender = dto.Gender;
             profile.Birthday = dto.Birthday;
             profile.StyleTag = dto.StyleTag;
@@ -124,11 +117,11 @@ namespace CLOthings_API.Controllers
             // 4. 限制圖片格式
             var allowedExtensions = new[]
             {
-        ".jpg",
-        ".jpeg",
-        ".png",
-        ".webp"
-    };
+                ".jpg",
+                ".jpeg",
+                ".png",
+                ".webp"
+            };
 
             var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
 
