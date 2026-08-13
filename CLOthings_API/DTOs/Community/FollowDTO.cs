@@ -13,6 +13,13 @@ public class FollowCountsDTO
     public int FollowingCount { get; set; }
 }
 
+public class FollowUserDTO
+{
+    public int UserId { get; set; }
+    public string Username { get; set; }
+    public string? Avatar { get; set; }
+}
+
 public class CreatorDTO
 {
     public int UserId { get; set; }
