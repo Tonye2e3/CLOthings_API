@@ -1,10 +1,12 @@
 ﻿using CLOthings_API.DTOs.GroupShop;
 using CLOthings_API.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 [Route("api/GroupShipper")]
 [ApiController]
+[Authorize(Roles = "Admin,SuperAdmin")] // 物流商管理僅限管理員
 public class GroupShipperController : ControllerBase
 {
     private readonly CLOthingsContext _context;

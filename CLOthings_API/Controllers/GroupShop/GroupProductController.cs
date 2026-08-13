@@ -1,5 +1,6 @@
 ﻿using CLOthings_API.DTOs.GroupShop;
 using CLOthings_API.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -142,9 +143,43 @@ public class GroupProductController : ControllerBase
 
     // ================= 以下是管理端（商品上架/編輯/下架 + 階層 + 規格）的 API =================
 
+    // POST: api/GroupProduct/upload-image
+    // 真正的圖片上傳：把管理員選的商品圖片存進 wwwroot/images/group-products/，回傳存好之後的路徑。
+    // 前端流程是「先呼叫這支把圖片存好、拿到路徑」，再把這個路徑存進 SaveGroupProductDTO.ProductImg，
+    // 這支本身不會動 GroupProduct 這張表。做法跟 CommunityPostController.UploadImages 一致。
+    [HttpPost("upload-image")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
+    public async Task<ActionResult<string>> UploadImage(IFormFile file)
+    {
+        if (file == null || file.Length == 0)
+        {
+            return BadRequest("請選擇圖片檔案");
+        }
+
+        var folder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "images", "group-products");
+        if (!Directory.Exists(folder))
+        {
+            Directory.CreateDirectory(folder);
+        }
+
+        // 檔名用 Guid.NewGuid() 重新命名，避免不同管理員剛好選了同名的檔案互相覆蓋掉對方的圖片
+        var extension = Path.GetExtension(file.FileName);
+        var newFileName = $"{Guid.NewGuid()}{extension}";
+        var fullPath = Path.Combine(folder, newFileName);
+
+        using (var stream = new FileStream(fullPath, FileMode.Create))
+        {
+            await file.CopyToAsync(stream);
+        }
+
+        // 回傳的是「相對路徑」（例如 /images/group-products/xxx.jpg），前端組網址時直接接在 API_BASE 後面即可
+        return Ok($"/images/group-products/{newFileName}");
+    }
+
     // GET: api/GroupProduct/5/edit
     // 編輯商品表單要用的原始欄位（GroupSupplierId / GroupProductCategoryId 這些買家端的 DTO 不會回傳）
     [HttpGet("{id}/edit")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult<SaveGroupProductDTO>> GetProductForEdit(int id)
     {
         var product = await _context.GroupProduct.FindAsync(id);
@@ -170,6 +205,7 @@ public class GroupProductController : ControllerBase
     // POST: api/GroupProduct
     // 新增團購商品
     [HttpPost]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult<GroupProductDTO>> CreateProduct(SaveGroupProductDTO dto)
     {
         var product = new GroupProduct
@@ -194,6 +230,7 @@ public class GroupProductController : ControllerBase
     // PUT: api/GroupProduct/5
     // 編輯團購商品基本資料
     [HttpPut("{id}")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> UpdateProduct(int id, SaveGroupProductDTO dto)
     {
         var product = await _context.GroupProduct.FindAsync(id);
@@ -220,6 +257,7 @@ public class GroupProductController : ControllerBase
     // 下架/刪除商品：如果已經有訂單明細用到這個商品，改成把 Status 設為「已下架」，避免刪掉造成訂單資料出錯；
     // 完全沒有任何訂單用過的商品才會真的整筆刪除
     [HttpDelete("{id}")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> DeleteProduct(int id)
     {
         var product = await _context.GroupProduct.FindAsync(id);
@@ -250,6 +288,7 @@ public class GroupProductController : ControllerBase
 
     // GET: api/GroupProduct/5/tiers
     [HttpGet("{id}/tiers")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult<IEnumerable<TierAdminDTO>>> GetTiers(int id)
     {
         // 注意：要先 ToListAsync() 把資料抓回記憶體，才能在 Select() 裡呼叫 ParseThresholdCount()。
@@ -276,6 +315,7 @@ public class GroupProductController : ControllerBase
 
     // POST: api/GroupProduct/5/tiers
     [HttpPost("{id}/tiers")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult<TierAdminDTO>> AddTier(int id, SaveTierDTO dto)
     {
         var product = await _context.GroupProduct.FindAsync(id);
@@ -306,6 +346,7 @@ public class GroupProductController : ControllerBase
 
     // PUT: api/GroupProduct/tiers/5   (5 是 GroupDiscountStandardId)
     [HttpPut("tiers/{tierId}")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> UpdateTier(int tierId, SaveTierDTO dto)
     {
         var tier = await _context.GroupDiscountStandard.FindAsync(tierId);
@@ -324,6 +365,7 @@ public class GroupProductController : ControllerBase
 
     // DELETE: api/GroupProduct/tiers/5
     [HttpDelete("tiers/{tierId}")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> DeleteTier(int tierId)
     {
         var tier = await _context.GroupDiscountStandard.FindAsync(tierId);
@@ -341,6 +383,7 @@ public class GroupProductController : ControllerBase
 
     // GET: api/GroupProduct/5/specifications
     [HttpGet("{id}/specifications")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult<IEnumerable<SpecAdminDTO>>> GetSpecifications(int id)
     {
         var specs = await _context.GroupProductSpecification
@@ -358,6 +401,7 @@ public class GroupProductController : ControllerBase
 
     // POST: api/GroupProduct/5/specifications
     [HttpPost("{id}/specifications")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult<SpecAdminDTO>> AddSpecification(int id, SaveSpecDTO dto)
     {
         var product = await _context.GroupProduct.FindAsync(id);
@@ -386,6 +430,7 @@ public class GroupProductController : ControllerBase
 
     // DELETE: api/GroupProduct/specifications/5
     [HttpDelete("specifications/{specId}")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> DeleteSpecification(int specId)
     {
         var spec = await _context.GroupProductSpecification.FindAsync(specId);

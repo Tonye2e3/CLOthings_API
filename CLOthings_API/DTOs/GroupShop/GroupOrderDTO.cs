@@ -1,10 +1,9 @@
 ﻿namespace CLOthings_API.DTOs.GroupShop
 {
     // 結帳時前端要傳的收件資訊（對應 GroupCheckoutView 的 orderInfo）
+    // UserId 不再由前端傳入，後端一律從 JWT 取得
     public class GroupCheckoutDTO
     {
-        public int UserId { get; set; }
-
         public string ShipName { get; set; }
 
         public string ShipPhone { get; set; }

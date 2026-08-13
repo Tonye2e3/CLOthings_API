@@ -1,5 +1,7 @@
-﻿using CLOthings_API.DTOs.GroupShop;
+﻿using System.Security.Claims;
+using CLOthings_API.DTOs.GroupShop;
 using CLOthings_API.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,10 +15,22 @@ public class GroupOrderController : ControllerBase
         _context = context;
     }
 
-    // GET: api/GroupOrder/5   (5 是 userId)，對應「我的團購訂單」列表頁
-    [HttpGet("{userId}")]
-    public async Task<ActionResult<IEnumerable<GroupOrderListDTO>>> GetOrders(int userId)
+    // 從 JWT 的 Claims 取得目前登入者的 UserId，不再讓前端（Vue）自己傳 UserId 過來
+    // 這個方法只能在已經掛 [Authorize] 的 Controller/Action 裡呼叫，否則 Claims 裡不會有這筆資料
+    private int GetUserId()
     {
+        var value = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        return int.TryParse(value, out var id) ? id : 0;
+    }
+
+    // GET: api/GroupOrder/mine，對應「我的團購訂單」列表頁
+    // UserId 一律從 JWT 取得，不再由前端指定
+    [HttpGet("mine")]
+    [Authorize(Roles = "User,SuperAdmin")]
+    public async Task<ActionResult<IEnumerable<GroupOrderListDTO>>> GetOrders()
+    {
+        var userId = GetUserId();
+
         var orders = await _context.GroupOrder
             .Include(o => o.GroupOrderDetail)
                 .ThenInclude(d => d.GroupProduct)
@@ -30,6 +44,7 @@ public class GroupOrderController : ControllerBase
 
     // GET: api/GroupOrder/detail/5   (5 是 GroupOrderId)，給「編輯訂單」Modal 用
     [HttpGet("detail/{orderId}")]
+    [Authorize(Roles = "User,SuperAdmin")]
     public async Task<ActionResult<GroupOrderDetailFullDTO>> GetOrderDetail(int orderId)
     {
         var order = await _context.GroupOrder
@@ -42,14 +57,23 @@ public class GroupOrderController : ControllerBase
             return NotFound();
         }
 
+        // 只能看自己的訂單，SuperAdmin 不受限
+        if (order.UserId != GetUserId() && !User.IsInRole("SuperAdmin"))
+        {
+            return Forbid();
+        }
+
         return Ok(ToFullDTO(order));
     }
 
     // POST: api/GroupOrder/checkout
     // 把使用者購物車（GroupCart）裡的商品結成一筆訂單，成功後會清空購物車
     [HttpPost("checkout")]
+    [Authorize(Roles = "User,SuperAdmin")]
     public async Task<ActionResult<GroupOrderDetailFullDTO>> Checkout(GroupCheckoutDTO dto)
     {
+        var userId = GetUserId();
+
         if (string.IsNullOrWhiteSpace(dto.ShipName) || string.IsNullOrWhiteSpace(dto.ShipPhone) || string.IsNullOrWhiteSpace(dto.ShipAddress))
         {
             return BadRequest("請完整填寫收件人姓名、電話與地址");
@@ -57,7 +81,7 @@ public class GroupOrderController : ControllerBase
 
         var cartItems = await _context.GroupCart
             .Include(c => c.GroupProduct)
-            .Where(c => c.UserId == dto.UserId)
+            .Where(c => c.UserId == userId)
             .ToListAsync();
 
         if (cartItems.Count == 0)
@@ -86,13 +110,13 @@ public class GroupOrderController : ControllerBase
 
         // 目前沒有真正的金流串接，這裡把使用者選的付款方式當作一筆 GroupPaymentMethod 記錄（找不到就新增一筆）
         var paymentMethod = await _context.GroupPaymentMethod.FirstOrDefaultAsync(p =>
-            p.UserId == dto.UserId && p.Provider == dto.PaymentMethod);
+            p.UserId == userId && p.Provider == dto.PaymentMethod);
 
         if (paymentMethod == null)
         {
             paymentMethod = new GroupPaymentMethod
             {
-                UserId = dto.UserId,
+                UserId = userId,
                 Provider = dto.PaymentMethod,
                 Token = "N/A", // 資料庫這個欄位是 NOT NULL，目前沒有真的串金流所以沒有真正的 token，先用佔位值頂著
                 CardBrand = dto.PaymentMethod, // 同上，資料庫這個欄位是 NOT NULL
@@ -105,7 +129,7 @@ public class GroupOrderController : ControllerBase
 
         var order = new GroupOrder
         {
-            UserId = dto.UserId,
+            UserId = userId,
             Status = "進行中 (組團中)",
             TotalPrice = grandTotal,
             OrderDate = DateTimeOffset.Now,
@@ -155,12 +179,19 @@ public class GroupOrderController : ControllerBase
 
     // PUT: api/GroupOrder/5/cancel   (5 是 GroupOrderId)
     [HttpPut("{orderId}/cancel")]
+    [Authorize(Roles = "User,SuperAdmin")]
     public async Task<IActionResult> CancelOrder(int orderId)
     {
         var order = await _context.GroupOrder.FindAsync(orderId);
         if (order == null)
         {
             return NotFound();
+        }
+
+        // 只能取消自己的訂單，SuperAdmin 不受限
+        if (order.UserId != GetUserId() && !User.IsInRole("SuperAdmin"))
+        {
+            return Forbid();
         }
 
         if (order.Status == "已取消")
@@ -178,6 +209,7 @@ public class GroupOrderController : ControllerBase
 
     // PUT: api/GroupOrder/5   (5 是 GroupOrderId)，對應「編輯訂單」Modal 的儲存
     [HttpPut("{orderId}")]
+    [Authorize(Roles = "User,SuperAdmin")]
     public async Task<ActionResult<GroupOrderDetailFullDTO>> EditOrder(int orderId, EditGroupOrderDTO dto)
     {
         var order = await _context.GroupOrder
@@ -188,6 +220,12 @@ public class GroupOrderController : ControllerBase
         if (order == null)
         {
             return NotFound();
+        }
+
+        // 只能編輯自己的訂單，SuperAdmin 不受限
+        if (order.UserId != GetUserId() && !User.IsInRole("SuperAdmin"))
+        {
+            return Forbid();
         }
 
         if (order.Status == "已取消")
@@ -234,6 +272,7 @@ public class GroupOrderController : ControllerBase
     // GET: api/GroupOrder/admin/all
     // status 選填：帶了就只回傳該狀態的訂單，例如 ?status=進行中 (組團中)
     [HttpGet("admin/all")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult<IEnumerable<GroupOrderAdminListDTO>>> GetAllOrders([FromQuery] string status = null)
     {
         var query = _context.GroupOrder
@@ -253,6 +292,7 @@ public class GroupOrderController : ControllerBase
 
     // PUT: api/GroupOrder/5/status   (5 是 GroupOrderId)
     [HttpPut("{orderId}/status")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> UpdateStatus(int orderId, UpdateOrderStatusDTO dto)
     {
         var order = await _context.GroupOrder.FindAsync(orderId);
@@ -268,6 +308,7 @@ public class GroupOrderController : ControllerBase
 
     // PUT: api/GroupOrder/5/shipper   (5 是 GroupOrderId)
     [HttpPut("{orderId}/shipper")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> AssignShipper(int orderId, AssignShipperDTO dto)
     {
         var order = await _context.GroupOrder.FindAsync(orderId);
