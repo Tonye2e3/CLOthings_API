@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authorization;
 using CLOthings_API.Models;
 
 [Route("api/[controller]")]
@@ -89,8 +90,9 @@ public class CommunityFavoriteController : ControllerBase
     }
 
     // POST: api/CommunityFavorite
-    // 收藏：新增一筆 Community_Favorite 紀錄。
+    // 收藏：新增一筆 Community_Favorite 紀錄。加 [Authorize]：收藏一定要登入。
     [HttpPost]
+    [Authorize]
     public async Task<ResultDTO> PostCommunityFavorite(FavoriteDTO favoriteDTO)
     {
         CommunityFavorite favorite = new CommunityFavorite
@@ -107,8 +109,9 @@ public class CommunityFavoriteController : ControllerBase
 
     // DELETE: api/CommunityFavorite/5
     // 取消收藏：刪除那筆 Community_Favorite 紀錄，5 要帶 communityFavoriteId
-    // （從 GetCommunityFavoriteByPostAndUser 查回來的那個 id）。
+    // （從 GetCommunityFavoriteByPostAndUser 查回來的那個 id）。加 [Authorize]：取消收藏一定要登入。
     [HttpDelete("{communityfavoriteid}")]
+    [Authorize]
     public async Task<ResultDTO> DeleteCommunityFavorite(int? communityfavoriteid)
     {
         var favorite = await _context.CommunityFavorite.FindAsync(communityfavoriteid);
