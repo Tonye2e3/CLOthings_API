@@ -9,10 +9,10 @@ public class CommunityPostDTO
     public string Status { get; set; }
 
     public UserSummaryDTO? User { get; set; }
-    public List<PostImageDTO> Images { get; set; }
+    public List<PostImageDTO>? Images { get; set; }
     public int LikesCount { get; set; }
     public int CommentsCount { get; set; }
-    public List<TaggedProductDTO> TaggedProducts { get; set; }
+    public List<TaggedProductDTO>? TaggedProducts { get; set; }
 }
 
 public class UserSummaryDTO

@@ -269,11 +269,14 @@ public class CommunityPostController : ControllerBase
             post.Status = communitypostDTO.Status;
             _context.Entry(post).State = EntityState.Modified;
 
-            var oldImages = _context.PostImage.Where(i => i.CommunityPostId == post.CommunityPostId);
-            _context.PostImage.RemoveRange(oldImages);
-
+            // 只有在 DTO「真的有帶」Images 這個欄位時，才動圖片——null 代表「這次編輯不動圖片」，
+            // 不是「清空圖片」。之前的寫法不管有沒有帶都先刪光，如果哪個編輯表單沒帶這個欄位
+            // （例如 UserProfileView.vue 的編輯表單目前不支援改標記商品），圖片/標籤會被誤刪。
             if (communitypostDTO.Images != null)
             {
+                var oldImages = _context.PostImage.Where(i => i.CommunityPostId == post.CommunityPostId);
+                _context.PostImage.RemoveRange(oldImages);
+
                 foreach (var img in communitypostDTO.Images)
                 {
                     PostImage postImage = new PostImage
@@ -287,11 +290,13 @@ public class CommunityPostController : ControllerBase
                 }
             }
 
-            var oldTags = _context.PostTaggedProduct.Where(t => t.CommunityPostId == post.CommunityPostId);
-            _context.PostTaggedProduct.RemoveRange(oldTags);
-
+            // 同樣道理：TaggedProducts 是 null 就代表「這次編輯不動標記商品」，維持原樣。
+            // 如果真的想清空標記商品，前端要明確送一個空陣列 []，不是不帶這個欄位。
             if (communitypostDTO.TaggedProducts != null)
             {
+                var oldTags = _context.PostTaggedProduct.Where(t => t.CommunityPostId == post.CommunityPostId);
+                _context.PostTaggedProduct.RemoveRange(oldTags);
+
                 foreach (var tag in communitypostDTO.TaggedProducts)
                 {
                     PostTaggedProduct postTaggedProduct = new PostTaggedProduct
