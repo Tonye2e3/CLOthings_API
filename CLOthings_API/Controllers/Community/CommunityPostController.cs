@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using CLOthings_API.Models;
 using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 
 [Route("api/[controller]")]
 [ApiController]
@@ -55,25 +56,29 @@ public class CommunityPostController : ControllerBase
     }
 
     // GET: api/CommunityPost
-    // 拿掉 [Authorize]：貼文列表是社群首頁動態牆要用的，任何人（不管有沒有登入）都該看得到，
-    // 不能設成一定要登入才能瀏覽。
+    // 拿掉 [Authorize]：貼文列表是社群首頁動態牆要用的，任何人（不管有沒有登入）都該看得到。
+    // 固定只回傳 status 是 public 的貼文，不開放用查詢參數切換——不然任何人只要不帶參數
+    // 就能看到全部貼文（含隱藏、審核中的），等於「隱藏」形同虛設。要看全部狀態的貼文，
+    // 要走下面新加的 GetAllCommunityPostForAdmin，那支才有 [Authorize(Roles = "Admin,SuperAdmin")] 保護。
     [HttpGet]
     public async Task<IEnumerable<CommunityPostDTO>> GetCommunityPost()
     {
-        return await _context.CommunityPost.Select(c => new CommunityPostDTO
-        {
-            CommunityPostId = c.CommunityPostId,
-            UserId = c.UserId,
-            Content = c.Content,
-            PostDate = c.PostDate,
-            Status = c.Status,
-            User = new UserSummaryDTO
+        return await _context.CommunityPost
+            .Where(c => c.Status == "public")
+            .Select(c => new CommunityPostDTO
             {
-                UserId = c.User.UserId,
-                Name = c.User.Username,
-                Avatar = c.User.UserProfile.Select(p => p.Avatar).FirstOrDefault()
-            },
-            Images = c.PostImage
+                CommunityPostId = c.CommunityPostId,
+                UserId = c.UserId,
+                Content = c.Content,
+                PostDate = c.PostDate,
+                Status = c.Status,
+                User = new UserSummaryDTO
+                {
+                    UserId = c.User.UserId,
+                    Name = c.User.Username,
+                    Avatar = c.User.UserProfile.Select(p => p.Avatar).FirstOrDefault()
+                },
+                Images = c.PostImage
                 .OrderBy(i => i.SortOrder)
                 .Select(i => new PostImageDTO
                 {
@@ -81,9 +86,9 @@ public class CommunityPostController : ControllerBase
                     ImageFileName = i.ImageFileName,
                     SortOrder = i.SortOrder
                 }).ToList(),
-            LikesCount = c.PostLike.Count(),
-            CommentsCount = c.PostComment.Count(),
-            TaggedProducts = c.PostTaggedProduct
+                LikesCount = c.PostLike.Count(),
+                CommentsCount = c.PostComment.Count(),
+                TaggedProducts = c.PostTaggedProduct
                 .Select(t => new TaggedProductDTO
                 {
                     PostTaggedProductId = t.PostTaggedProductId,
@@ -93,11 +98,16 @@ public class CommunityPostController : ControllerBase
                     Image = t.Product.ProductImg.Select(pi => pi.ProductImgFile).FirstOrDefault(),
                     Price = t.Product.Price
                 }).ToList()
-        }).ToListAsync();
+            }).ToListAsync();
     }
 
+    // GET: api/CommunityPost/admin/all
     // GET: api/CommunityPost/5
-    // 一樣不用登入，貼文詳細頁任何人都該看得到。
+    // 一樣不用登入，貼文詳細頁任何人都該看得到。這支故意不篩選狀態——
+    // 如果篩成只回傳 public，作者自己想看自己隱藏的貼文（例如從個人頁點進去）也會看不到，
+    // 這樣會壞掉一個正常使用情境，不只是擋壞人。單篇查詢的曝光風險本來就比列表低很多
+    // （得先知道確切的貼文編號），先不處理，之後真的要補，要一起考慮「本人／管理員可以看，
+    // 其他人不行」這種依角色判斷的邏輯，不是單純加篩選就好。
     [HttpGet("{communitypostid}")]
     public async Task<CommunityPostDTO> GetCommunityPost(int communitypostid)
     {
@@ -148,12 +158,26 @@ public class CommunityPostController : ControllerBase
     }
 
     // GET: api/CommunityPost/user/5
-    // 一樣不用登入，個人頁瀏覽別人的貼文也不用先登入。
+    // 不用登入也能打（沒帶 token 就當一般訪客看）。但這支的答案要「因人而異」：
+    // 本人看自己的頁面，要看到全部狀態（含隱藏、審核中的），才能管理自己的貼文；
+    // 別人（或沒登入的訪客）看，就只該看到 public 的，跟隱藏／審核中應該一樣搜不到。
+    // 判斷方式：從 JWT 讀出「現在打這支 API 的人是誰」（如果有帶 token 的話），
+    // 跟網址上的 userid 比對是不是同一個人；管理員也放行看全部，方便後台以外的地方也能查。
     [HttpGet("user/{userid}")]
     public async Task<IEnumerable<CommunityPostDTO>> GetCommunityPostByUser(int userid)
     {
-        return await _context.CommunityPost
-            .Where(c => c.UserId == userid)
+        var viewerIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        int.TryParse(viewerIdString, out var viewerId);
+        var isOwner = viewerId == userid;
+        var isAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
+
+        var query = _context.CommunityPost.Where(c => c.UserId == userid);
+        if (!isOwner && !isAdmin)
+        {
+            query = query.Where(c => c.Status == "public");
+        }
+
+        return await query
             .Select(c => new CommunityPostDTO
             {
                 CommunityPostId = c.CommunityPostId,
