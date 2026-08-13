@@ -72,10 +72,9 @@ app.UseCors("AllowFrontend");
 
 app.UseHttpsRedirection();
 
-app.UseAuthentication();
-
 app.UseStaticFiles();
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
