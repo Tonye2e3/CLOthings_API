@@ -1,5 +1,6 @@
 ﻿using CLOthings_API.DTOs.GroupShop;
 using CLOthings_API.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -8,6 +9,7 @@ using Microsoft.Extensions.Logging;
 // 達到第一階層件數 → 商品成團；沒達到 → 商品流團，相關訂單自動取消並記錄一封（假的）退款通知信
 [Route("api/GroupSettlement")]
 [ApiController]
+[Authorize(Roles = "Admin,SuperAdmin")] // 結算作業僅限管理員觸發
 public class GroupSettlementController : ControllerBase
 {
     private readonly CLOthingsContext _context;

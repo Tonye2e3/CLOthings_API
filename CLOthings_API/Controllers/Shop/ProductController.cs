@@ -40,6 +40,40 @@ namespace CLOthings_API.Controllers.Shop
             return Ok(products);
         }
 
+        // GET api/product/5
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetProduct(int id)
+        {
+            var product = await _context.Product
+                .Include(p => p.ProductImg)              // 撈圖片
+                .Include(p => p.ProductSpecification)    // 撈規格
+                .Where(p => p.ProductId == id)           // 只要這個 id
+                .Select(p => new ProductDetailDto
+                {
+                    ProductId = p.ProductId,
+                    ProductName = p.ProductName,
+                    Price = p.Price,
+                    Description = p.Description,
+                    // 把規格表的每一筆，轉成 ProductSpecDto
+                    Specifications = p.ProductSpecification.Select(s => new ProductDetailSpecDto
+                    {
+                        ProductSpecificationId = s.ProductSpecificationId,
+                        Color = s.Color,
+                        Size = s.Size,
+                        Inventory = s.Inventory,
+                    }).ToList(),
+                    // 把圖片表的每一筆，轉成檔名清單
+                    Images = p.ProductImg.Select(img => img.ProductImgFile).ToList(),
+                })
+                .FirstOrDefaultAsync();
+
+            if (product == null)
+            {
+                return NotFound();   // 找不到這個商品
+            }
+
+            return Ok(product);
+        }
 
 
 

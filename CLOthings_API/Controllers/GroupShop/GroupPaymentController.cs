@@ -1,6 +1,8 @@
-﻿using System.Collections.Concurrent;
+﻿using System.Security.Claims;
+using System.Collections.Concurrent;
 using CLOthings_API.DTOs.GroupShop;
 using CLOthings_API.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,6 +11,7 @@ using Microsoft.EntityFrameworkCore;
 // 頂多是使用者要重新走一次結帳，不會弄丟已經成立的訂單。
 [Route("api/GroupPayment")]
 [ApiController]
+[Authorize(Roles = "User,SuperAdmin")] // 整支都是買家結帳流程，需要先登入
 public class GroupPaymentController : ControllerBase
 {
     private readonly CLOthingsContext _context;
@@ -17,30 +20,47 @@ public class GroupPaymentController : ControllerBase
         _context = context;
     }
 
+    // 從 JWT 的 Claims 取得目前登入者的 UserId，不再讓前端（Vue）自己傳 UserId 過來
+    // 這個方法只能在已經掛 [Authorize] 的 Controller/Action 裡呼叫，否則 Claims 裡不會有這筆資料
+    private int GetUserId()
+    {
+        var value = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        return int.TryParse(value, out var id) ? id : 0;
+    }
+
     // 記憶體裡暫存「正在付款中」的資料：key 是 paymentId，value 是這筆付款要用的收件資訊
     // static + ConcurrentDictionary：讓同一個後端行程裡，不管哪個請求進來都能共用同一份資料，且執行緒安全
-    private static readonly ConcurrentDictionary<string, GroupCheckoutDTO> PendingPayments = new();
+    // UserId 額外存起來（從 JWT 取得，不是前端傳的），確保之後查詢/確認付款時可以驗證身分
+    private static readonly ConcurrentDictionary<string, PendingPaymentEntry> PendingPayments = new();
+
+    private class PendingPaymentEntry
+    {
+        public int UserId { get; set; }
+        public GroupCheckoutDTO Dto { get; set; }
+    }
 
     // POST: api/GroupPayment/create
     // 結帳頁按下「前往付款」時呼叫這支：不會直接建立訂單，只是先把收件資訊記下來，換一個 paymentId
     [HttpPost("create")]
     public async Task<ActionResult<CreatePaymentResultDTO>> CreatePayment(GroupCheckoutDTO dto)
     {
+        var userId = GetUserId();
+
         if (string.IsNullOrWhiteSpace(dto.ShipName) || string.IsNullOrWhiteSpace(dto.ShipPhone) || string.IsNullOrWhiteSpace(dto.ShipAddress))
         {
             return BadRequest("請完整填寫收件人姓名、電話與地址");
         }
 
-        var cartItems = await _context.GroupCart.Where(c => c.UserId == dto.UserId).ToListAsync();
+        var cartItems = await _context.GroupCart.Where(c => c.UserId == userId).ToListAsync();
         if (cartItems.Count == 0)
         {
             return BadRequest("購物車是空的，請先加入商品");
         }
 
-        var amount = await CalculateAmountAsync(dto.UserId);
+        var amount = await CalculateAmountAsync(userId);
 
         var paymentId = Guid.NewGuid().ToString("N");
-        PendingPayments[paymentId] = dto;
+        PendingPayments[paymentId] = new PendingPaymentEntry { UserId = userId, Dto = dto };
 
         return Ok(new CreatePaymentResultDTO
         {
@@ -54,14 +74,22 @@ public class GroupPaymentController : ControllerBase
     [HttpGet("{paymentId}")]
     public async Task<ActionResult<PendingPaymentDTO>> GetPending(string paymentId)
     {
-        if (!PendingPayments.TryGetValue(paymentId, out var dto))
+        if (!PendingPayments.TryGetValue(paymentId, out var entry))
         {
             return NotFound("找不到這筆付款，可能已經處理過或已過期");
         }
 
+        // 只能查自己建立的付款，SuperAdmin 不受限
+        if (entry.UserId != GetUserId() && !User.IsInRole("SuperAdmin"))
+        {
+            return Forbid();
+        }
+
+        var dto = entry.Dto;
+
         var cartItems = await _context.GroupCart
             .Include(c => c.GroupProduct)
-            .Where(c => c.UserId == dto.UserId)
+            .Where(c => c.UserId == entry.UserId)
             .ToListAsync();
 
         var orderedQtyMap = await GetOrderedQtyMapAsync();
@@ -82,7 +110,7 @@ public class GroupPaymentController : ControllerBase
         return Ok(new PendingPaymentDTO
         {
             PaymentId = paymentId,
-            Amount = await CalculateAmountAsync(dto.UserId),
+            Amount = await CalculateAmountAsync(entry.UserId),
             PaymentMethod = dto.PaymentMethod,
             Items = items
         });
@@ -94,10 +122,18 @@ public class GroupPaymentController : ControllerBase
     [HttpPost("{paymentId}/confirm")]
     public async Task<ActionResult<GroupOrderDetailFullDTO>> ConfirmPayment(string paymentId, ConfirmPaymentDTO confirm)
     {
-        if (!PendingPayments.TryRemove(paymentId, out var dto))
+        if (!PendingPayments.TryGetValue(paymentId, out var entry))
         {
             return NotFound("找不到這筆付款，可能已經處理過或已過期");
         }
+
+        // 只能確認自己建立的付款，SuperAdmin 不受限
+        if (entry.UserId != GetUserId() && !User.IsInRole("SuperAdmin"))
+        {
+            return Forbid();
+        }
+
+        PendingPayments.TryRemove(paymentId, out _);
 
         if (!confirm.Success)
         {
@@ -105,7 +141,7 @@ public class GroupPaymentController : ControllerBase
         }
 
         // 付款成功，這裡才是「真的」建立訂單的地方
-        var order = await CreateOrderFromCartAsync(dto);
+        var order = await CreateOrderFromCartAsync(entry.UserId, entry.Dto);
         if (order == null)
         {
             return BadRequest("付款成功，但購物車已經是空的，可能是重複送出，請重新確認訂單");
@@ -115,11 +151,11 @@ public class GroupPaymentController : ControllerBase
     }
 
     // 付款成功後，把使用者購物車裡的內容真的轉成一筆訂單（邏輯跟原本 GroupOrderController.Checkout 相同）
-    private async Task<GroupOrder> CreateOrderFromCartAsync(GroupCheckoutDTO dto)
+    private async Task<GroupOrder> CreateOrderFromCartAsync(int userId, GroupCheckoutDTO dto)
     {
         var cartItems = await _context.GroupCart
             .Include(c => c.GroupProduct)
-            .Where(c => c.UserId == dto.UserId)
+            .Where(c => c.UserId == userId)
             .ToListAsync();
 
         if (cartItems.Count == 0)
@@ -141,13 +177,13 @@ public class GroupPaymentController : ControllerBase
         var grandTotal = subtotal + freight;
 
         var paymentMethod = await _context.GroupPaymentMethod.FirstOrDefaultAsync(p =>
-            p.UserId == dto.UserId && p.Provider == dto.PaymentMethod);
+            p.UserId == userId && p.Provider == dto.PaymentMethod);
 
         if (paymentMethod == null)
         {
             paymentMethod = new GroupPaymentMethod
             {
-                UserId = dto.UserId,
+                UserId = userId,
                 Provider = dto.PaymentMethod,
                 Token = "N/A",
                 CardBrand = dto.PaymentMethod,
@@ -160,7 +196,7 @@ public class GroupPaymentController : ControllerBase
 
         var order = new GroupOrder
         {
-            UserId = dto.UserId,
+            UserId = userId,
             Status = "進行中 (組團中)",
             TotalPrice = grandTotal,
             OrderDate = DateTimeOffset.Now,

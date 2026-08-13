@@ -1,5 +1,6 @@
 ﻿using CLOthings_API.DTOs.GroupShop;
 using CLOthings_API.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -16,6 +17,7 @@ public class GroupCustomerServiceController : ControllerBase
     // POST: api/GroupCustomerService/order/5   (5 是 GroupOrderId)
     // 買家針對某一筆訂單提出問題
     [HttpPost("order/{orderId}")]
+    [Authorize(Roles = "User,SuperAdmin")]
     public async Task<ActionResult<GroupCustomerServiceDTO>> Create(int orderId, CreateGroupCustomerServiceDTO dto)
     {
         var orderExists = await _context.GroupOrder.AnyAsync(o => o.GroupOrderId == orderId);
@@ -48,6 +50,7 @@ public class GroupCustomerServiceController : ControllerBase
     // GET: api/GroupCustomerService/order/5   (5 是 GroupOrderId)
     // 買家查詢自己針對這筆訂單送出過的客服紀錄
     [HttpGet("order/{orderId}")]
+    [Authorize(Roles = "User,SuperAdmin")]
     public async Task<ActionResult<IEnumerable<GroupCustomerServiceDTO>>> GetByOrder(int orderId)
     {
         var records = await _context.GroupCustomerService
@@ -60,6 +63,7 @@ public class GroupCustomerServiceController : ControllerBase
     // GET: api/GroupCustomerService/admin/all
     // 管理端查詢全部客服紀錄
     [HttpGet("admin/all")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult<IEnumerable<GroupCustomerServiceDTO>>> GetAll()
     {
         var records = await _context.GroupCustomerService.ToListAsync();
