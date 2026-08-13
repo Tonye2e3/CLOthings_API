@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authorization;
 using CLOthings_API.Models;
 
 [Route("api/[controller]")]
@@ -40,8 +41,9 @@ public class PostLikeController : ControllerBase
     }
 
     // POST: api/PostLike
-    // 按讚：新增一筆 Post_Like 紀錄。
+    // 按讚：新增一筆 Post_Like 紀錄。加 [Authorize]：按讚一定要登入。
     [HttpPost]
+    [Authorize]
     public async Task<ResultDTO> PostPostLike(LikeDTO likeDTO)
     {
         PostLike like = new PostLike
@@ -59,7 +61,9 @@ public class PostLikeController : ControllerBase
 
     // DELETE: api/PostLike/5
     // 取消讚：刪除那筆 Post_Like 紀錄，5 要帶 postLikesId（從 GetPostLikeByPostAndUser 查回來的那個 id）。
+    // 加 [Authorize]：取消讚一定要登入。
     [HttpDelete("{postlikesid}")]
+    [Authorize]
     public async Task<ResultDTO> DeletePostLike(int? postlikesid)
     {
         var like = await _context.PostLike.FindAsync(postlikesid);

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authorization;
 using CLOthings_API.Models;
 
 [Route("api/[controller]")]
@@ -95,7 +96,9 @@ public class PostCommentController : ControllerBase
     }
 
     // POST: api/PostComment
+    // 加 [Authorize]：留言一定要登入。
     [HttpPost]
+    [Authorize]
     public async Task<ResultDTO> PostPostComment(CommentDTO commentDTO)
     {
         PostComment comment = new PostComment

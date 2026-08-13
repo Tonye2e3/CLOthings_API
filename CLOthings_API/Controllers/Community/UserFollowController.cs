@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authorization;
 using CLOthings_API.Models;
 
 [Route("api/[controller]")]
@@ -111,8 +112,9 @@ public class UserFollowController : ControllerBase
     }
 
     // POST: api/UserFollow
-    // 追蹤：新增一筆 User_Follow 紀錄。
+    // 追蹤：新增一筆 User_Follow 紀錄。加 [Authorize]：追蹤一定要登入。
     [HttpPost]
+    [Authorize]
     public async Task<ResultDTO> PostUserFollow(FollowDTO followDTO)
     {
         UserFollow follow = new UserFollow
@@ -130,8 +132,9 @@ public class UserFollowController : ControllerBase
 
     // DELETE: api/UserFollow/5
     // 取消追蹤：刪除那筆 User_Follow 紀錄，5 要帶 userFollowId
-    // （從 GetUserFollow 查回來的那個 id）。
+    // （從 GetUserFollow 查回來的那個 id）。加 [Authorize]：取消追蹤一定要登入。
     [HttpDelete("{userfollowid}")]
+    [Authorize]
     public async Task<ResultDTO> DeleteUserFollow(int? userfollowid)
     {
         var follow = await _context.UserFollow.FindAsync(userfollowid);
