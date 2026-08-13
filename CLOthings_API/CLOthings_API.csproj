@@ -23,6 +23,7 @@
     <Folder Include="DTOs\Community\" />
     <Folder Include="Controllers\Shop\" />
     <Folder Include="DTOs\GroupShop\" />
+    <Folder Include="wwwroot\images\user\avatars\" />
   </ItemGroup>
 
 </Project>
