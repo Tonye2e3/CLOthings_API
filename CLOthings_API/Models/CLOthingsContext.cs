@@ -65,6 +65,8 @@ public partial class CLOthingsContext : DbContext
 
     public virtual DbSet<PostLike> PostLike { get; set; }
 
+    public virtual DbSet<PostShortUrl> PostShortUrl { get; set; }
+
     public virtual DbSet<PostTaggedProduct> PostTaggedProduct { get; set; }
 
     public virtual DbSet<Product> Product { get; set; }
@@ -561,6 +563,24 @@ public partial class CLOthingsContext : DbContext
                 .HasForeignKey(d => d.UserId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_PostLike_User");
+        });
+
+        // PostShortUrl：跟現有其他表一樣的寫法，靠 create_PostShortUrl_table.sql 裡的
+        // UQ_PostShortUrl_CommunityPostId 唯一約束保證「一篇貼文只有一組短碼」，
+        // 這裡不用再額外設定。
+        modelBuilder.Entity<PostShortUrl>(entity =>
+        {
+            entity.HasKey(e => e.PostShortUrlId);
+
+            entity.HasIndex(e => e.CommunityPostId, "UQ_PostShortUrl_CommunityPostId").IsUnique();
+            entity.HasIndex(e => e.ShortCode, "UQ_PostShortUrl_ShortCode").IsUnique();
+
+            entity.Property(e => e.ShortCode).HasMaxLength(10);
+            entity.Property(e => e.CreatedDate).HasDefaultValueSql("(sysdatetimeoffset())");
+
+            entity.HasOne(d => d.CommunityPost).WithMany(p => p.PostShortUrl)
+                .HasForeignKey(d => d.CommunityPostId)
+                .HasConstraintName("FK_PostShortUrl_CommunityPost");
         });
 
         modelBuilder.Entity<PostTaggedProduct>(entity =>
