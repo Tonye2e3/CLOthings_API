@@ -58,6 +58,38 @@ public class UserFollowController : ControllerBase
         };
     }
 
+    // GET: api/UserFollow/followers/5
+    // 查「這個人的粉絲名單」（誰追蹤了他），UserProfileView.vue 點粉絲數字彈出的名單要用這個。
+    [HttpGet("followers/{userid}")]
+    public async Task<IEnumerable<FollowUserDTO>> GetFollowers(int userid)
+    {
+        return await _context.UserFollow
+            .Where(f => f.FollowingId == userid)
+            .Select(f => new FollowUserDTO
+            {
+                UserId = f.Follower.UserId,
+                Username = f.Follower.Username,
+                Avatar = f.Follower.UserProfile.Select(p => p.Avatar).FirstOrDefault()
+            })
+            .ToListAsync();
+    }
+
+    // GET: api/UserFollow/following/5
+    // 查「這個人追蹤中的名單」（他追蹤了誰），UserProfileView.vue 點追蹤中數字彈出的名單要用這個。
+    [HttpGet("following/{userid}")]
+    public async Task<IEnumerable<FollowUserDTO>> GetFollowing(int userid)
+    {
+        return await _context.UserFollow
+            .Where(f => f.FollowerId == userid)
+            .Select(f => new FollowUserDTO
+            {
+                UserId = f.Following.UserId,
+                Username = f.Following.Username,
+                Avatar = f.Following.UserProfile.Select(p => p.Avatar).FirstOrDefault()
+            })
+            .ToListAsync();
+    }
+
     // GET: api/UserFollow/popular-creators?take=3&followerId=1
     // 找「粉絲數最多的前幾名」使用者，CommunityView.vue 側欄「熱門穿搭達人」要用這個。
     // take：要抓前幾名。followerId：目前登入的測試帳號 id，用來判斷這幾位「我」有沒有追蹤過，
