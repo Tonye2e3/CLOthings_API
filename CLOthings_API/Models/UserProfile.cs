@@ -23,7 +23,7 @@ public partial class UserProfile
 
     public string StyleTag { get; set; }
 
-    public string Intro { get; set; }   
+    public string Intro { get; set; }
 
     public virtual User User { get; set; }
 }

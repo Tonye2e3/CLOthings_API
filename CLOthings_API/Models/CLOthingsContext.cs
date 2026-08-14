@@ -93,6 +93,8 @@ public partial class CLOthingsContext : DbContext
 
     public virtual DbSet<UserProfile> UserProfile { get; set; }
 
+    public virtual DbSet<UserRefreshToken> UserRefreshToken { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Cart>(entity =>
@@ -785,6 +787,22 @@ public partial class CLOthingsContext : DbContext
             entity.HasOne(d => d.User).WithMany(p => p.UserProfile)
                 .HasForeignKey(d => d.UserId)
                 .HasConstraintName("FK_UserProfile_User");
+        });
+
+        modelBuilder.Entity<UserRefreshToken>(entity =>
+        {
+            entity.HasKey(e => e.UserRefreshTokenId).HasName("PK__UserRefr__76DBA1D1C64A0B50");
+
+            entity.HasIndex(e => e.TokenHash, "IX_UserRefreshToken_TokenHash").IsUnique();
+
+            entity.Property(e => e.ReplacedByTokenHash).HasMaxLength(200);
+            entity.Property(e => e.TokenHash)
+                .IsRequired()
+                .HasMaxLength(200);
+
+            entity.HasOne(d => d.User).WithMany(p => p.UserRefreshToken)
+                .HasForeignKey(d => d.UserId)
+                .HasConstraintName("FK_UserRefreshToken_User");
         });
 
         OnModelCreatingPartial(modelBuilder);
