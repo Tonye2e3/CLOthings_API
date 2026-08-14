@@ -58,12 +58,23 @@ builder.Services.AddCors(options =>
         });
 });
 
+
 var app = builder.Build();
+
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+
+    //.NET10 使用 swaggerUI
+    app.UseSwaggerUI(options =>
+    {
+        options.SwaggerEndpoint(
+            "/openapi/v1.json",
+            "OpenAPI V1"
+        );
+    });
 }
 
 app.UseCors("AllowFrontend");

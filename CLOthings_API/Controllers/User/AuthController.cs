@@ -10,6 +10,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using System.Security.Cryptography;
 
 namespace CLOthings_API.Controllers
 {
@@ -59,12 +60,47 @@ namespace CLOthings_API.Controllers
             }
 
             // 3. 產生 Access Token
-            var tokenString = GenerateAccessToken(user);
+            var accessToken = GenerateAccessToken(user);
 
-            // 4. 回傳登入資料
+            // 4. 產生 Refresh Token
+            var refreshToken = GenerateRefreshToken();
+
+            // 5. Refresh Token 做 Hash
+            var refreshTokenHash = HashRefreshToken(refreshToken);
+
+            // 6. 建立 Refresh Token 資料
+            var userRefreshToken = new UserRefreshToken
+            {
+                UserId = user.UserId,
+                TokenHash = refreshTokenHash,
+                CreatedAt = DateTimeOffset.UtcNow,
+                ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+                RevokedAt = null,
+                ReplacedByTokenHash = null
+            };
+
+            // 7. 儲存到資料庫
+            _context.UserRefreshToken.Add(userRefreshToken);
+
+            await _context.SaveChangesAsync();
+
+            // 8. 將原始 Refresh Token 放進 HttpOnly Cookie
+            Response.Cookies.Append(
+                "refreshToken",
+                refreshToken,
+                new CookieOptions
+                {
+                    HttpOnly = true,
+                    Secure = true,
+                    SameSite = SameSiteMode.None,
+                    Expires = DateTimeOffset.UtcNow.AddDays(7)
+                }
+            );
+
+            // 9. 回傳 Access Token
             return Ok(new
             {
-                token = tokenString,
+                token = accessToken,
                 name = user.Username,
                 account = user.Account,
                 role = ((UserTypeEnum)user.UserType).ToString()
@@ -74,6 +110,8 @@ namespace CLOthings_API.Controllers
         // 產生 JWT Access Token
         private string GenerateAccessToken(User user)
         {
+
+
             var role = ((UserTypeEnum)user.UserType).ToString();
 
             var claims = new[]
@@ -120,6 +158,123 @@ namespace CLOthings_API.Controllers
 
             return new JwtSecurityTokenHandler()
                 .WriteToken(token);
+
         }
+
+        // 產生 Refresh Token
+        private string GenerateRefreshToken()
+        {
+            // 產生 64 bytes 的密碼學安全隨機資料
+            var randomBytes = RandomNumberGenerator.GetBytes(64);
+
+            // 轉成 Base64 字串，方便傳輸與儲存
+            return Convert.ToBase64String(randomBytes);
+        }
+
+        // 將 Refresh Token 做 SHA256 Hash
+        private string HashRefreshToken(string refreshToken)
+        {
+            // 將字串轉成 byte[]
+            var tokenBytes = Encoding.UTF8.GetBytes(refreshToken);
+
+            // SHA256 Hash
+            var hashBytes = SHA256.HashData(tokenBytes);
+
+            // 轉成 Base64 字串
+            return Convert.ToBase64String(hashBytes);
+        }
+
+        // POST: api/Auth/refresh
+        [HttpPost("refresh")]
+        public async Task<ActionResult> Refresh()
+        {
+            // 1. 從 HttpOnly Cookie 取得 Refresh Token
+            if (!Request.Cookies.TryGetValue("refreshToken", out var refreshToken))
+            {
+                return Unauthorized("找不到 Refresh Token");
+            }
+
+            // 2. 把 Cookie 裡的原始 Refresh Token 做 Hash
+            var refreshTokenHash = HashRefreshToken(refreshToken);
+
+            // 3. 用 Hash 去資料庫找 Token
+            var storedToken = await _context.UserRefreshToken
+                .FirstOrDefaultAsync(t => t.TokenHash == refreshTokenHash);
+
+            if (storedToken == null)
+            {
+                return Unauthorized("Refresh Token 無效");
+            }
+
+            // 4. 檢查是否已經被撤銷
+            if (storedToken.RevokedAt != null)
+            {
+                return Unauthorized("Refresh Token 已失效");
+            }
+
+            // 5. 檢查是否過期
+            if (storedToken.ExpiresAt <= DateTimeOffset.UtcNow)
+            {
+                return Unauthorized("Refresh Token 已過期");
+            }
+
+            // 6. 找到這顆 Refresh Token 所屬的 User
+            var user = await _context.User
+                .FirstOrDefaultAsync(u => u.UserId == storedToken.UserId);
+
+            if (user == null)
+            {
+                return Unauthorized("使用者不存在");
+            }
+
+            // 7. 產生新的 Access Token
+            var newAccessToken = GenerateAccessToken(user);
+
+            // 8. 產生新的 Refresh Token
+            var newRefreshToken = GenerateRefreshToken();
+
+            // 9. 新 Refresh Token 做 Hash
+            var newRefreshTokenHash = HashRefreshToken(newRefreshToken);
+
+            // 10. 舊 Refresh Token 設為撤銷
+            storedToken.RevokedAt = DateTimeOffset.UtcNow;
+            storedToken.ReplacedByTokenHash = newRefreshTokenHash;
+
+            // 11. 建立新的 Refresh Token 資料
+            var newStoredToken = new UserRefreshToken
+            {
+                UserId = user.UserId,
+                TokenHash = newRefreshTokenHash,
+                CreatedAt = DateTimeOffset.UtcNow,
+                ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
+                RevokedAt = null,
+                ReplacedByTokenHash = null
+            };
+
+            _context.UserRefreshToken.Add(newStoredToken);
+
+            // 12. 儲存資料庫
+            await _context.SaveChangesAsync();
+
+            // 13. 用新的 Refresh Token 取代 Cookie
+            Response.Cookies.Append(
+                "refreshToken",
+                newRefreshToken,
+                new CookieOptions
+                {
+                    HttpOnly = true,
+                    Secure = true,
+                    SameSite = SameSiteMode.None,
+                    Expires = DateTimeOffset.UtcNow.AddDays(7)
+                }
+            );
+
+            // 14. 回傳新的 Access Token
+            return Ok(new
+            {
+                token = newAccessToken
+            });
+        }
+
     }
 }

@@ -46,9 +46,37 @@ public class UserController : ControllerBase
     }
 
     // GET: api/User/5
-    [HttpGet("{userid}")]
     [Authorize(Roles = "SuperAdmin")]
-    public async Task<ActionResult<User>> GetUser(int userid)
+    [HttpGet("{userid}")]
+    public async Task<ActionResult<UserDTO>> GetUser(int userid)
+    {
+        var user = await _context.User
+            .Where(u => u.UserId == userid)
+            .Select(u => new UserDTO
+            {
+                UserId = u.UserId,
+                Username = u.Username,
+                Account = u.Account,
+                Email = u.Email,
+                Phone = u.Phone
+            })
+            .FirstOrDefaultAsync();
+
+        if (user == null)
+        {
+            return NotFound();
+        }
+
+        return Ok(user);
+    }
+
+    // PUT: api/User/5
+    // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
+    [Authorize(Roles = "SuperAdmin")]
+    [HttpPut("{userid}")]
+    public async Task<IActionResult> PutUser(
+    int userid,
+    UpdateUserDTO dto)
     {
         var user = await _context.User.FindAsync(userid);
 
@@ -57,37 +85,12 @@ public class UserController : ControllerBase
             return NotFound();
         }
 
-        return user;
-    }
+        user.Username = dto.Username;
+        user.Email = dto.Email;
+        user.Phone = dto.Phone;
+        user.UpdatedAt = DateTimeOffset.UtcNow;
 
-    // PUT: api/User/5
-    // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
-    [HttpPut("{userid}")]
-    [Authorize(Roles = "SuperAdmin")]
-    public async Task<IActionResult> PutUser(int? userid, User user)
-    {
-        if (userid != user.UserId)
-        {
-            return BadRequest();
-        }
-
-        _context.Entry(user).State = EntityState.Modified;
-
-        try
-        {
-            await _context.SaveChangesAsync();
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            if (!UserExists(userid))
-            {
-                return NotFound();
-            }
-            else
-            {
-                throw;
-            }
-        }
+        await _context.SaveChangesAsync();
 
         return NoContent();
     }
