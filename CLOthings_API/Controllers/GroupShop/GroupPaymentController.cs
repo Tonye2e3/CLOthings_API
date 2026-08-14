@@ -1,4 +1,7 @@
 ﻿using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using System.Collections.Concurrent;
 using CLOthings_API.DTOs.GroupShop;
 using CLOthings_API.Models;
@@ -9,15 +12,22 @@ using Microsoft.EntityFrameworkCore;
 // 這支是「假的第三方金流商」：模擬使用者在銀行/金流頁面付款的過程。
 // 待付款資料先放在記憶體裡（不用另外開資料表），後端重啟會清空，但這時候本來就還沒有真正的訂單，
 // 頂多是使用者要重新走一次結帳，不會弄丟已經成立的訂單。
+// LINE Pay 那組端點是真的接 LINE Pay Sandbox，跟上面的模擬付款是兩條平行的路，
+// 前端結帳頁選「LINE Pay」才會走 LINE Pay 這條，其他付款方式維持原本的模擬付款流程。
 [Route("api/GroupPayment")]
 [ApiController]
 [Authorize(Roles = "User,SuperAdmin")] // 整支都是買家結帳流程，需要先登入
 public class GroupPaymentController : ControllerBase
 {
     private readonly CLOthingsContext _context;
-    public GroupPaymentController(CLOthingsContext context)
+    private readonly IConfiguration _configuration;
+    private readonly IHttpClientFactory _httpClientFactory;
+
+    public GroupPaymentController(CLOthingsContext context, IConfiguration configuration, IHttpClientFactory httpClientFactory)
     {
         _context = context;
+        _configuration = configuration;
+        _httpClientFactory = httpClientFactory;
     }
 
     // 從 JWT 的 Claims 取得目前登入者的 UserId，不再讓前端（Vue）自己傳 UserId 過來
@@ -148,6 +158,203 @@ public class GroupPaymentController : ControllerBase
         }
 
         return Ok(ToFullDTO(order));
+    }
+
+    // ================= 以下是真的接 LINE Pay Sandbox 的部分 =================
+
+    // POST: api/GroupPayment/linepay/request
+    // 結帳頁選「LINE Pay」、按下「前往付款」時呼叫這支：
+    // 先跟 CreatePayment 一樣把收件資訊記下來、換一個 paymentId，
+    // 再呼叫 LINE Pay 的 Request API 換一個 LINE Pay 的付款頁網址，回傳給前端整頁導過去
+    [HttpPost("linepay/request")]
+    public async Task<ActionResult<LinePayRequestResultDTO>> RequestLinePay(GroupCheckoutDTO dto)
+    {
+        var userId = GetUserId();
+
+        if (string.IsNullOrWhiteSpace(dto.ShipName) || string.IsNullOrWhiteSpace(dto.ShipPhone) || string.IsNullOrWhiteSpace(dto.ShipAddress))
+        {
+            return BadRequest("請完整填寫收件人姓名、電話與地址");
+        }
+
+        var cartItems = await _context.GroupCart
+            .Include(c => c.GroupProduct)
+            .Where(c => c.UserId == userId)
+            .ToListAsync();
+        if (cartItems.Count == 0)
+        {
+            return BadRequest("購物車是空的，請先加入商品");
+        }
+
+        var orderedQtyMap = await GetOrderedQtyMapAsync();
+        var tierMap = await _context.GroupDiscountStandard.ToListAsync();
+
+        var priced = cartItems.Select(c =>
+        {
+            var (unitPrice, _) = GroupCartController.ComputeUnitPrice(c.GroupProduct, tierMap, orderedQtyMap, c.GroupProductId, c.Quantity);
+            return new { Cart = c, UnitPrice = unitPrice };
+        }).ToList();
+
+        var subtotal = priced.Sum(p => p.UnitPrice * p.Cart.Quantity);
+        var freight = subtotal >= 1000 ? 0 : 60;
+        var amount = subtotal + freight;
+
+        var paymentId = Guid.NewGuid().ToString("N");
+        PendingPayments[paymentId] = new PendingPaymentEntry { UserId = userId, Dto = dto };
+
+        // LINE Pay 規定 packages[].amount 要等於底下 products 的加總，這裡把購物車品項跟運費分開列成兩個 product
+        var products = priced.Select(p => new
+        {
+            name = p.Cart.GroupProduct.ProductName,
+            quantity = p.Cart.Quantity,
+            price = p.UnitPrice
+        }).ToList<object>();
+
+        if (freight > 0)
+        {
+            products.Add(new { name = "運費", quantity = 1, price = freight });
+        }
+
+        var requestBody = new
+        {
+            amount,
+            currency = "TWD",
+            orderId = paymentId,
+            packages = new[]
+            {
+                new
+                {
+                    id = "package-1",
+                    amount,
+                    products
+                }
+            },
+            redirectUrls = new
+            {
+                confirmUrl = _configuration["LinePay:ConfirmUrl"],
+                cancelUrl = _configuration["LinePay:CancelUrl"]
+            }
+        };
+
+        var (success, resultJson) = await CallLinePayApiAsync("POST", "/v3/payments/request", requestBody);
+        if (!success)
+        {
+            PendingPayments.TryRemove(paymentId, out _);
+            return BadRequest("呼叫 LINE Pay 發生錯誤：" + resultJson);
+        }
+
+        using var doc = JsonDocument.Parse(resultJson);
+        var root = doc.RootElement;
+        var returnCode = root.GetProperty("returnCode").GetString();
+        if (returnCode != "0000")
+        {
+            PendingPayments.TryRemove(paymentId, out _);
+            var returnMessage = root.TryGetProperty("returnMessage", out var msgEl) ? msgEl.GetString() : "未知錯誤";
+            return BadRequest($"LINE Pay 拒絕這筆付款請求：[{returnCode}] {returnMessage}");
+        }
+
+        var paymentUrl = root.GetProperty("info").GetProperty("paymentUrl").GetProperty("web").GetString();
+
+        return Ok(new LinePayRequestResultDTO { PaymentUrl = paymentUrl });
+    }
+
+    // GET: api/GroupPayment/linepay/confirm
+    // 使用者在 LINE Pay 頁面完成付款後，LINE Pay 會把瀏覽器導回這支，
+    // 網址上會帶 transactionId（LINE Pay 那筆交易的序號）跟 orderId（就是我們自己的 paymentId）
+    // 這支不能要求登入，因為是 LINE Pay 直接呼叫的，不是我們前端呼叫
+    [HttpGet("linepay/confirm")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ConfirmLinePay([FromQuery] string transactionId, [FromQuery] string orderId)
+    {
+        var frontendSuccessUrl = _configuration["LinePay:FrontendSuccessUrl"];
+        var frontendFailUrl = _configuration["LinePay:FrontendCancelUrl"];
+
+        if (string.IsNullOrWhiteSpace(transactionId) || string.IsNullOrWhiteSpace(orderId))
+        {
+            return Redirect($"{frontendFailUrl}?linepay=fail&reason=missing_params");
+        }
+
+        // orderId 就是我們自己的 paymentId，用它找回這筆付款當初記下的收件資訊
+        if (!PendingPayments.TryGetValue(orderId, out var entry))
+        {
+            return Redirect($"{frontendFailUrl}?linepay=fail&reason=not_found");
+        }
+
+        var amount = await CalculateAmountAsync(entry.UserId);
+
+        var confirmBody = new { amount, currency = "TWD" };
+        var (success, resultJson) = await CallLinePayApiAsync("POST", $"/v3/payments/{transactionId}/confirm", confirmBody);
+        if (!success)
+        {
+            return Redirect($"{frontendFailUrl}?linepay=fail&reason=api_error");
+        }
+
+        using var doc = JsonDocument.Parse(resultJson);
+        var returnCode = doc.RootElement.GetProperty("returnCode").GetString();
+        if (returnCode != "0000")
+        {
+            return Redirect($"{frontendFailUrl}?linepay=fail&reason={returnCode}");
+        }
+
+        // LINE Pay 那邊確認付款成功了，這裡才是「真的」建立訂單的地方
+        PendingPayments.TryRemove(orderId, out _);
+        var order = await CreateOrderFromCartAsync(entry.UserId, entry.Dto);
+        if (order == null)
+        {
+            return Redirect($"{frontendFailUrl}?linepay=fail&reason=cart_empty");
+        }
+
+        return Redirect($"{frontendSuccessUrl}?linepay=success&orderId={order.GroupOrderId}");
+    }
+
+    // GET: api/GroupPayment/linepay/cancel
+    // 使用者在 LINE Pay 頁面按取消，LINE Pay 會把瀏覽器導回這支
+    // 什麼都不用做，購物車跟 PendingPayments 都保留著，讓使用者可以重新選擇付款方式
+    [HttpGet("linepay/cancel")]
+    [AllowAnonymous]
+    public IActionResult CancelLinePay()
+    {
+        var frontendCancelUrl = _configuration["LinePay:FrontendCancelUrl"];
+        return Redirect($"{frontendCancelUrl}?linepay=cancelled");
+    }
+
+    // 呼叫 LINE Pay API 的共用小工具：組出 HMAC 簽章、送出請求、回傳 (是否成功, 回應內容)
+    private async Task<(bool success, string body)> CallLinePayApiAsync(string method, string uri, object requestBody)
+    {
+        var channelId = _configuration["LinePay:ChannelId"];
+        var channelSecret = _configuration["LinePay:ChannelSecret"];
+        var baseUrl = _configuration["LinePay:BaseUrl"];
+
+        var bodyJson = method == "POST" ? JsonSerializer.Serialize(requestBody) : "";
+        var nonce = Guid.NewGuid().ToString();
+
+        // LINE Pay 簽章規則（官方文件）：
+        // Signature = Base64(HMAC-SHA256(ChannelSecret, ChannelSecret + URI + RequestBody + Nonce))
+        var signText = channelSecret + uri + bodyJson + nonce;
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(channelSecret));
+        var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(signText));
+        var signature = Convert.ToBase64String(hash);
+
+        var client = _httpClientFactory.CreateClient();
+        var request = new HttpRequestMessage(new HttpMethod(method), baseUrl + uri);
+        request.Headers.Add("X-LINE-ChannelId", channelId);
+        request.Headers.Add("X-LINE-Authorization-Nonce", nonce);
+        request.Headers.Add("X-LINE-Authorization", signature);
+
+        if (method == "POST")
+        {
+            request.Content = new StringContent(bodyJson, Encoding.UTF8, "application/json");
+        }
+
+        try
+        {
+            var response = await client.SendAsync(request);
+            var responseBody = await response.Content.ReadAsStringAsync();
+            return (true, responseBody);
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
     }
 
     // 付款成功後，把使用者購物車裡的內容真的轉成一筆訂單（邏輯跟原本 GroupOrderController.Checkout 相同）

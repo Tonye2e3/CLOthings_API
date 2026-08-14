@@ -291,6 +291,16 @@ public class GroupOrderController : ControllerBase
     }
 
     // PUT: api/GroupOrder/5/status   (5 是 GroupOrderId)
+    // 後台可以手動切換的訂單狀態，要跟前端 GroupOrderAdminView 的下拉選單保持一致。
+    // 「已取消（團購未成立，已退款）」這種帶原因的取消狀態是結算作業自動產生的，不開放後台手動選
+    private static readonly HashSet<string> AllowedStatuses = new()
+    {
+        "進行中 (組團中)",
+        "已成團 (備貨中)",
+        "已完成",
+        "已取消"
+    };
+
     [HttpPut("{orderId}/status")]
     [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> UpdateStatus(int orderId, UpdateOrderStatusDTO dto)
@@ -299,6 +309,12 @@ public class GroupOrderController : ControllerBase
         if (order == null)
         {
             return NotFound();
+        }
+
+        // 只能改成前端下拉選單有的那幾種狀態，避免打錯字或帶入奇怪字串，讓「已取消」相關的字串比對邏輯失效
+        if (string.IsNullOrWhiteSpace(dto.Status) || !AllowedStatuses.Contains(dto.Status))
+        {
+            return BadRequest("不合法的訂單狀態");
         }
 
         order.Status = dto.Status;
@@ -315,6 +331,12 @@ public class GroupOrderController : ControllerBase
         if (order == null)
         {
             return NotFound();
+        }
+
+        // 已取消的訂單不需要（也不該）再指派物流商
+        if (order.Status.Contains("取消"))
+        {
+            return BadRequest("已取消的訂單不能指派物流商");
         }
 
         var shipperExists = await _context.GroupShipper.AnyAsync(s => s.GroupShipperId == dto.GroupShipperId);

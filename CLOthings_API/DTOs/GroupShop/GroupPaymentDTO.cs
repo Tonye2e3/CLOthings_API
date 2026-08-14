@@ -25,4 +25,10 @@
     {
         public bool Success { get; set; }
     }
+
+    // 呼叫 LINE Pay Request API 成功後，回傳給前端的付款頁網址
+    public class LinePayRequestResultDTO
+    {
+        public string PaymentUrl { get; set; }
+    }
 }

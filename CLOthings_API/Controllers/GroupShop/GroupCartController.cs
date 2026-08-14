@@ -71,6 +71,9 @@ public class GroupCartController : ControllerBase
     {
         var userId = GetUserId();
 
+        // 數量至少為 1，避免直接呼叫 API 帶 0 或負數進來，弄亂團購已訂購件數的計算
+        dto.Quantity = Math.Max(1, dto.Quantity);
+
         var product = await _context.GroupProduct.FindAsync(dto.GroupProductId);
         if (product == null)
         {
@@ -91,6 +94,17 @@ public class GroupCartController : ControllerBase
                 return BadRequest("這個商品還沒有建立任何規格（GroupProductSpecification），請先建立至少一筆規格資料");
             }
             specificationId = defaultSpec;
+        }
+        else
+        {
+            // 前端如果有指定規格，確認這個規格真的屬於這個商品，避免把 A 商品的規格掛到 B 商品的購物車項目上
+            var specBelongsToProduct = await _context.GroupProductSpecification
+                .AnyAsync(s => s.GroupProductSpecificationId == specificationId && s.GroupProductId == dto.GroupProductId);
+
+            if (!specBelongsToProduct)
+            {
+                return BadRequest("指定的規格不屬於這個商品");
+            }
         }
 
         var existing = await _context.GroupCart.FirstOrDefaultAsync(c =>
