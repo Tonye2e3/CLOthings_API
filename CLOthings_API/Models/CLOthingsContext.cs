@@ -231,6 +231,7 @@ public partial class CLOthingsContext : DbContext
             entity.Property(e => e.Title)
                 .IsRequired()
                 .HasMaxLength(50);
+            entity.Property(e => e.ReplyContent).HasMaxLength(1000);
 
             entity.HasOne(d => d.GroupOrder).WithMany(p => p.GroupCustomerService)
                 .HasForeignKey(d => d.GroupOrderId)

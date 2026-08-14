@@ -13,6 +13,9 @@ builder.Services.AddControllers();
 
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 
+// 呼叫 LINE Pay API 要用（GroupPaymentController 的 LINE Pay 那幾支端點）
+builder.Services.AddHttpClient();
+
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
@@ -76,6 +79,7 @@ if (app.Environment.IsDevelopment())
         );
     });
 }
+
 
 app.UseCors("AllowFrontend");
 
