@@ -14,6 +14,7 @@ using System.Text;
 
 [Route("api/[controller]")]
 [ApiController]
+[Authorize]
 public class UserController : ControllerBase
 {
     private readonly CLOthingsContext _context;
@@ -30,7 +31,7 @@ public class UserController : ControllerBase
 
     // GET: api/User
     [HttpGet]
-    [Authorize(Roles = "Admin,SuperAdmin")]
+    [Authorize(Roles = "SuperAdmin")]
     public async Task<ActionResult<IEnumerable<UserDTO>>> GetUser()
     {
         var users = await _context.User.Select(e => new UserDTO
@@ -46,6 +47,7 @@ public class UserController : ControllerBase
 
     // GET: api/User/5
     [HttpGet("{userid}")]
+    [Authorize(Roles = "SuperAdmin")]
     public async Task<ActionResult<User>> GetUser(int userid)
     {
         var user = await _context.User.FindAsync(userid);
@@ -61,6 +63,7 @@ public class UserController : ControllerBase
     // PUT: api/User/5
     // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
     [HttpPut("{userid}")]
+    [Authorize(Roles = "SuperAdmin")]
     public async Task<IActionResult> PutUser(int? userid, User user)
     {
         if (userid != user.UserId)
@@ -92,6 +95,7 @@ public class UserController : ControllerBase
     // POST: api/User
     // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
     [HttpPost]
+    [AllowAnonymous]
     public async Task<ActionResult> PostUser(RegisterDTO dto)
     {
         // 先檢查帳號是否已存在
@@ -162,6 +166,7 @@ public class UserController : ControllerBase
 
     // DELETE: api/User/5
     [HttpDelete("{userid}")]
+    [Authorize(Roles = "SuperAdmin")]
     public async Task<IActionResult> DeleteUser(int? userid)
     {
         var user = await _context.User.FindAsync(userid);
@@ -181,72 +186,69 @@ public class UserController : ControllerBase
         return _context.User.Any(e => e.UserId == userid);
     }
 
-
-
-    // POST: api/User/login
-    [HttpPost("login")]
-    public async Task<ActionResult> Login(LoginDTO dto)
+    private string GenerateAccessToken(User user)
     {
-        // 先根據帳號找使用者
-        var user = await _context.User
-            .FirstOrDefaultAsync(u => u.Account == dto.Account);
-
-        if (user == null)
-            return Unauthorized("帳號或密碼錯誤");
-
-        // 驗證使用者輸入的密碼是否符合資料庫中的 Password Hash
-        var passwordResult = _passwordHasher.VerifyHashedPassword(
-            user,
-            user.Password,
-            dto.Password
-        );
-
-        if (passwordResult == PasswordVerificationResult.Failed)
-        {
-            return Unauthorized("帳號或密碼錯誤");
-        }
-
-        // 後面 JWT...
+        // 取得會員角色
         var role = ((UserTypeEnum)user.UserType).ToString();
 
-
-
-
+        // JWT 裡要存放的會員資訊
         var claims = new[]
-            {
-            new Claim(ClaimTypes.NameIdentifier,user.UserId.ToString()),
-            new Claim(ClaimTypes.Name,user.Username),
-            new Claim("account",user.Account),
-            new Claim(ClaimTypes.Role,role)
-        };
+        {
+        new Claim(
+            ClaimTypes.NameIdentifier,
+            user.UserId.ToString()
+        ),
 
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]!));
+        new Claim(
+            ClaimTypes.Name,
+            user.Username
+        ),
 
-        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+        new Claim(
+            "account",
+            user.Account
+        ),
 
+        new Claim(
+            ClaimTypes.Role,
+            role
+        )
+    };
+
+        // 取得 appsettings.json 裡面的 JWT Key
+        var key = new SymmetricSecurityKey(
+            Encoding.UTF8.GetBytes(
+                _configuration["Jwt:Key"]!
+            )
+        );
+
+        // 使用 HMAC SHA256 簽章
+        var credentials = new SigningCredentials(
+            key,
+            SecurityAlgorithms.HmacSha256
+        );
+
+        // 建立 JWT
         var token = new JwtSecurityToken(
             issuer: _configuration["Jwt:Issuer"],
             audience: _configuration["Jwt:Audience"],
             claims: claims,
+
+            // 先維持你目前的 2 小時
             expires: DateTime.UtcNow.AddHours(2),
+
             signingCredentials: credentials
         );
 
-        var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
-
-        return Ok(new
-        {
-            token = tokenString,
-            name = user.Username,
-            account = user.Account,
-            role = ((UserTypeEnum)user.UserType).ToString()
-        }
-            );
+        // JWT 物件轉成字串
+        return new JwtSecurityTokenHandler()
+            .WriteToken(token);
     }
+
+
 
     // GET: api/User/me
     [HttpGet("me")]
-    [Authorize]
     public async Task<ActionResult> GetMe()
     {
         // 從 JWT 取得目前登入者的 UserId
@@ -283,7 +285,6 @@ public class UserController : ControllerBase
 
     // PUT: api/User/me
     [HttpPut("me")]
-    [Authorize]
     public async Task<IActionResult> PutMe(UpdateUserDTO dto)
     {
         // 1. 從 JWT 取得目前登入者的 UserId
@@ -317,7 +318,6 @@ public class UserController : ControllerBase
 
     // PUT: api/User/me/password
     [HttpPut("me/password")]
-    [Authorize]
     public async Task<IActionResult> ChangePassword(ChangePasswordDTO dto)
     {
         // 1. 從 JWT 取得目前登入者 UserId

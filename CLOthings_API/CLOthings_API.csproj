@@ -26,4 +26,8 @@
     <Folder Include="wwwroot\images\user\avatars\" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="efpt.config.json.user" />
+  </ItemGroup>
+
 </Project>
