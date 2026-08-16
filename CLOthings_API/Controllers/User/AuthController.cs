@@ -1,6 +1,5 @@
 ﻿using CLOthings.Enums;
 using CLOthings_API.DTO.User;
-using CLOthings_API.DTOs;
 using CLOthings_API.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -9,8 +8,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Text;
 using System.Security.Cryptography;
+using System.Text;
 
 namespace CLOthings_API.Controllers
 {
@@ -152,7 +151,7 @@ namespace CLOthings_API.Controllers
                 issuer: _configuration["Jwt:Issuer"],
                 audience: _configuration["Jwt:Audience"],
                 claims: claims,
-                expires: DateTime.UtcNow.AddHours(2),
+                expires: DateTime.UtcNow.AddSeconds(5),
                 signingCredentials: credentials
             );
 
@@ -186,6 +185,7 @@ namespace CLOthings_API.Controllers
 
         // POST: api/Auth/refresh
         [HttpPost("refresh")]
+        [AllowAnonymous]
         public async Task<ActionResult> Refresh()
         {
             // 1. 從 HttpOnly Cookie 取得 Refresh Token

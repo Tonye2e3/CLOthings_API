@@ -44,7 +44,10 @@ builder.Services
                 Encoding.UTF8.GetBytes(
                     builder.Configuration["Jwt:Key"]!
                 )
-            )
+            ),
+            // JWT 過期時間不給額外容許誤差
+            // 現在測試 Access Token 5 秒過期時很重要
+            ClockSkew = TimeSpan.Zero
         };
     });
 
