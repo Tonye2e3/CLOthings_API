@@ -3,7 +3,9 @@ using CLOthings_API.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Net.NetworkInformation;
 using System.Security.Claims;
+
 
 namespace CLOthings_API.Controllers.Shop
 {
@@ -91,6 +93,61 @@ namespace CLOthings_API.Controllers.Shop
 
             // 回傳新訂單的 id
             return Ok(new { message = "訂單建立成功", orderId = order.OrderId });
+        }
+
+        // GET api/order —— 拿「我的」訂單清單
+        [HttpGet]
+        public async Task<IActionResult> GetMyOrders()
+        {
+    // ① 從 token 讀 userId
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
+
+            // ② 撈我的訂單，撈的時候要.Include 明細（才能算總金額）
+            var orders = await _context.Order
+              .Where(o => o.UserId == userId)
+              .Include(o => o.OrderDetail)
+              .Select(o => new OrderListDto
+              {
+                  OrderId = o.OrderId,
+                  OrderDate = o.OrderDate,
+                  Status = o.Status,
+                  Total = o.OrderDetail.Sum(d => d.Price * d.Quantity)
+              }).ToListAsync();
+
+            return Ok(orders);
+        }
+
+        // GET api/order/id —— 拿訂單詳情
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetOrderdetail(int id)
+        {
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
+
+            var orderdetail = await _context.Order
+                .Where(o => o.OrderId == id && o.UserId == userId)
+                .Include(o => o.OrderDetail)
+                    .ThenInclude(d => d.ProductSpecification)
+                    .ThenInclude(s => s.Product)
+                .Select(o => new OrderDetailViewDto
+                {
+                    OrderId = o.OrderId,
+                    OrderDate = o.OrderDate,
+                    Status = o.Status,
+                    ShipName = o.ShipName,
+                    ShipAddress = o.ShipAddress,
+                    ShipPhone = o.ShipPhone,
+                    Total = o.OrderDetail.Sum(d => d.Price * d.Quantity),
+                    Items = o.OrderDetail.Select(d => new OrderItemViewDto
+                    {
+                        ProductName = d.ProductSpecification.Product.ProductName,
+                        Color = d.ProductSpecification.Color,
+                        Size = d.ProductSpecification.Size,
+                        Quantity = d.Quantity,
+                        Price = d.Price,
+                    }).ToList(),
+                }).FirstOrDefaultAsync();
+            if (orderdetail == null) return NotFound();
+            return Ok(orderdetail);
         }
     }
 }
