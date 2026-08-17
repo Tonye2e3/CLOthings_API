@@ -1,4 +1,5 @@
 ﻿using System.Security.Claims;
+using System.Linq;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using CLOthings_API.Models;
@@ -37,9 +38,14 @@ public class ChatHub : Hub
         }
 
         var content = request.Content?.Trim();
+        // 圖片路徑陣列先把 null／空字串濾掉，也去掉頭尾多餘空白，得到一份「乾淨」的清單。
+        var imagePaths = (request.ImagePaths ?? new List<string>())
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .ToList();
+
         // 文字、圖片至少要有一個：兩個都是空的話，代表前端傳來一則「什麼都沒有」的訊息，
         // 直接擋掉，不要存進資料庫。
-        if (string.IsNullOrWhiteSpace(content) && string.IsNullOrWhiteSpace(request.ImagePath))
+        if (string.IsNullOrWhiteSpace(content) && imagePaths.Count == 0)
         {
             return;
         }
@@ -49,10 +55,21 @@ public class ChatHub : Hub
             SenderId = senderId,
             ReceiverId = request.ReceiverId,
             Content = string.IsNullOrWhiteSpace(content) ? null : content,
-            ImagePath = request.ImagePath,
             SentAt = DateTimeOffset.Now,
             IsRead = false
         };
+
+        // 圖片存進 ChatMessageImage 這張新表，一張圖一筆資料、SortOrder 記住順序——
+        // ChatMessage.ImagePath 這個舊欄位不再使用（保留給以前存的舊訊息讀取用）。
+        for (int i = 0; i < imagePaths.Count; i++)
+        {
+            message.ChatMessageImage.Add(new ChatMessageImage
+            {
+                ImagePath = imagePaths[i],
+                SortOrder = i
+            });
+        }
+
         _context.ChatMessage.Add(message);
         await _context.SaveChangesAsync();
 
@@ -62,7 +79,7 @@ public class ChatHub : Hub
             SenderId = message.SenderId,
             ReceiverId = message.ReceiverId,
             Content = message.Content,
-            ImagePath = message.ImagePath,
+            ImagePaths = imagePaths,
             SentAt = message.SentAt,
             IsRead = message.IsRead
         };

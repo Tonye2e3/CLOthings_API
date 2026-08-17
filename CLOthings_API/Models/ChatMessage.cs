@@ -10,6 +10,7 @@
 // User 物件直接拿到「這個人所有訊息」的清單（用不到，Controller 都是直接查 ChatMessage 表）。
 #nullable disable
 using System;
+using System.Collections.Generic;
 
 namespace CLOthings_API.Models;
 
@@ -23,6 +24,9 @@ public partial class ChatMessage
 
     public string Content { get; set; }
 
+    // ImagePath：早期只能傳「單張圖片」時期用的舊欄位，繼續保留是為了讓那時候存的
+    // 舊訊息還讀得到。現在傳多張圖片改存進 ChatMessageImage 這張新表（見下面的
+    // ChatMessageImage 導覽屬性），新訊息這欄會是 null。
     public string ImagePath { get; set; }
 
     public DateTimeOffset SentAt { get; set; }
@@ -32,4 +36,6 @@ public partial class ChatMessage
     public virtual User Sender { get; set; }
 
     public virtual User Receiver { get; set; }
+
+    public virtual ICollection<ChatMessageImage> ChatMessageImage { get; set; } = new List<ChatMessageImage>();
 }

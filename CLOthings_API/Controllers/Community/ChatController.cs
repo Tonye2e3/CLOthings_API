@@ -87,6 +87,7 @@ public class ChatController : ControllerBase
         if (userId == null) return new List<ChatMessageDTO>();
 
         var messages = await _context.ChatMessage
+            .Include(m => m.ChatMessageImage)
             .Where(m => (m.SenderId == userId && m.ReceiverId == otherUserId) ||
                         (m.SenderId == otherUserId && m.ReceiverId == userId))
             .OrderBy(m => m.SentAt)
@@ -105,7 +106,7 @@ public class ChatController : ControllerBase
             SenderId = m.SenderId,
             ReceiverId = m.ReceiverId,
             Content = m.Content,
-            ImagePath = m.ImagePath,
+            ImagePaths = BuildImagePaths(m),
             SentAt = m.SentAt,
             IsRead = m.IsRead
         });
@@ -113,16 +114,17 @@ public class ChatController : ControllerBase
 
     // POST: api/Chat/upload-image
     // 跟 CommunityPostController.cs 的 upload-images 是同一套邏輯（存進 wwwroot、
-    // 檔名用 Guid 避免撞名），只是存到不同的資料夾（images/chat 而不是 images/posts），
-    // 圖片分開放，之後如果要清理／備份聊天圖片，不會跟貼文圖片混在一起。
+    // 檔名用 Guid 避免撞名，可以一次上傳多個檔案），只是存到不同的資料夾
+    // （images/chat 而不是 images/posts），圖片分開放，之後如果要清理／備份聊天圖片，
+    // 不會跟貼文圖片混在一起。
     //
     // 傳送圖片訊息的流程是「先上傳、再送出」：前端選好圖片後先打這支 API 把檔案存到伺服器、
-    // 拿到路徑，接著才呼叫 ChatHub.SendMessage 把這個路徑當成 ImagePath 存進訊息裡——
+    // 拿到路徑清單，接著才呼叫 ChatHub.SendMessage 把這些路徑存進訊息裡——
     // WebSocket（Hub）不適合直接拿來傳檔案本身，檔案上傳還是走一般的 HTTP API 比較單純。
     [HttpPost("upload-image")]
-    public async Task<ActionResult<string>> UploadImage(IFormFile file)
+    public async Task<ActionResult<List<string>>> UploadImage(List<IFormFile> files)
     {
-        if (file == null || file.Length == 0)
+        if (files == null || files.Count == 0)
         {
             return BadRequest();
         }
@@ -133,16 +135,28 @@ public class ChatController : ControllerBase
             Directory.CreateDirectory(folder);
         }
 
-        var extension = Path.GetExtension(file.FileName);
-        var newFileName = $"{Guid.NewGuid()}{extension}";
-        var fullPath = Path.Combine(folder, newFileName);
+        var savedPaths = new List<string>();
 
-        using (var stream = new FileStream(fullPath, FileMode.Create))
+        foreach (var file in files)
         {
-            await file.CopyToAsync(stream);
+            if (file.Length == 0)
+            {
+                continue;
+            }
+
+            var extension = Path.GetExtension(file.FileName);
+            var newFileName = $"{Guid.NewGuid()}{extension}";
+            var fullPath = Path.Combine(folder, newFileName);
+
+            using (var stream = new FileStream(fullPath, FileMode.Create))
+            {
+                await file.CopyToAsync(stream);
+            }
+
+            savedPaths.Add($"/images/chat/{newFileName}");
         }
 
-        return Ok($"/images/chat/{newFileName}");
+        return Ok(savedPaths);
     }
 
     // GetCurrentUserId：跟其他 Controller（例如 UserController.cs）同一套寫法，
@@ -152,5 +166,25 @@ public class ChatController : ControllerBase
     {
         var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
         return int.TryParse(userIdValue, out var userId) ? userId : null;
+    }
+
+    // BuildImagePaths：把一則訊息的圖片整理成統一的陣列格式——
+    // 新訊息的圖片存在 ChatMessageImage（可能好幾張，照 SortOrder 排序）；
+    // 舊訊息（在支援多圖之前傳的）圖片存在 ChatMessage.ImagePath 這個舊欄位（只有一張）。
+    // 前端畫面只需要處理 ImagePaths 這一種陣列格式，不用知道背後這兩種不同的存法。
+    private static List<string> BuildImagePaths(ChatMessage m)
+    {
+        if (m.ChatMessageImage != null && m.ChatMessageImage.Count > 0)
+        {
+            return m.ChatMessageImage
+                .OrderBy(i => i.SortOrder)
+                .Select(i => i.ImagePath)
+                .ToList();
+        }
+        if (!string.IsNullOrWhiteSpace(m.ImagePath))
+        {
+            return new List<string> { m.ImagePath };
+        }
+        return new List<string>();
     }
 }

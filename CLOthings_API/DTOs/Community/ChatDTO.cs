@@ -6,8 +6,8 @@ public class ChatMessageDTO
     public int ChatMessageId { get; set; }
     public int SenderId { get; set; }
     public int ReceiverId { get; set; }
-    public string Content { get; set; }
-    public string? ImagePath { get; set; }
+    public string? Content { get; set; }
+    public List<string> ImagePaths { get; set; } = new List<string>();
     public DateTimeOffset SentAt { get; set; }
     public bool IsRead { get; set; }
 }
@@ -28,6 +28,6 @@ public class ConversationDTO
 public class SendMessageRequestDTO
 {
     public int ReceiverId { get; set; }
-    public string Content { get; set; }
-    public string? ImagePath { get; set; }
+    public string? Content { get; set; }
+    public List<string>? ImagePaths { get; set; }
 }

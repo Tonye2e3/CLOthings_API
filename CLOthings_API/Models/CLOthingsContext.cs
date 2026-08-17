@@ -17,6 +17,9 @@ public partial class CLOthingsContext : DbContext
 
     public virtual DbSet<ChatMessage> ChatMessage { get; set; }
 
+    public virtual DbSet<ChatMessageImage> ChatMessageImage { get; set; }
+
+
     public virtual DbSet<CommunityFavorite> CommunityFavorite { get; set; }
 
     public virtual DbSet<CommunityPost> CommunityPost { get; set; }
@@ -131,6 +134,18 @@ public partial class CLOthingsContext : DbContext
                 .HasForeignKey(d => d.ReceiverId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_ChatMessage_Receiver");
+        });
+
+        modelBuilder.Entity<ChatMessageImage>(entity =>
+        {
+            entity.HasKey(e => e.ChatMessageImageId);
+
+            entity.Property(e => e.ImagePath).HasMaxLength(255).IsRequired();
+
+            entity.HasOne(d => d.ChatMessage).WithMany(p => p.ChatMessageImage)
+                .HasForeignKey(d => d.ChatMessageId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_ChatMessageImage_ChatMessage");
         });
 
         modelBuilder.Entity<CommunityFavorite>(entity =>
