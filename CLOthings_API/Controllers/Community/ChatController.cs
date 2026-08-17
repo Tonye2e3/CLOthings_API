@@ -67,7 +67,9 @@ public class ChatController : ControllerBase
                 OtherUserId = g.OtherUserId,
                 OtherUsername = other?.Username,
                 OtherAvatar = other?.Avatar,
-                LastMessageContent = g.Last.Content,
+                // 最後一則訊息如果是純圖片（Content 是 null），左側清單預覽文字
+                // 顯示「[圖片]」，不要留白讓使用者以為清單資料是空的。
+                LastMessageContent = g.Last.Content ?? "[圖片]",
                 LastMessageDate = g.Last.SentAt,
                 UnreadCount = g.UnreadCount
             };
@@ -103,9 +105,44 @@ public class ChatController : ControllerBase
             SenderId = m.SenderId,
             ReceiverId = m.ReceiverId,
             Content = m.Content,
+            ImagePath = m.ImagePath,
             SentAt = m.SentAt,
             IsRead = m.IsRead
         });
+    }
+
+    // POST: api/Chat/upload-image
+    // 跟 CommunityPostController.cs 的 upload-images 是同一套邏輯（存進 wwwroot、
+    // 檔名用 Guid 避免撞名），只是存到不同的資料夾（images/chat 而不是 images/posts），
+    // 圖片分開放，之後如果要清理／備份聊天圖片，不會跟貼文圖片混在一起。
+    //
+    // 傳送圖片訊息的流程是「先上傳、再送出」：前端選好圖片後先打這支 API 把檔案存到伺服器、
+    // 拿到路徑，接著才呼叫 ChatHub.SendMessage 把這個路徑當成 ImagePath 存進訊息裡——
+    // WebSocket（Hub）不適合直接拿來傳檔案本身，檔案上傳還是走一般的 HTTP API 比較單純。
+    [HttpPost("upload-image")]
+    public async Task<ActionResult<string>> UploadImage(IFormFile file)
+    {
+        if (file == null || file.Length == 0)
+        {
+            return BadRequest();
+        }
+
+        var folder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "images", "chat");
+        if (!Directory.Exists(folder))
+        {
+            Directory.CreateDirectory(folder);
+        }
+
+        var extension = Path.GetExtension(file.FileName);
+        var newFileName = $"{Guid.NewGuid()}{extension}";
+        var fullPath = Path.Combine(folder, newFileName);
+
+        using (var stream = new FileStream(fullPath, FileMode.Create))
+        {
+            await file.CopyToAsync(stream);
+        }
+
+        return Ok($"/images/chat/{newFileName}");
     }
 
     // GetCurrentUserId：跟其他 Controller（例如 UserController.cs）同一套寫法，

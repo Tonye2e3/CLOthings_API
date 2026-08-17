@@ -36,7 +36,10 @@ public class ChatHub : Hub
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(request.Content))
+        var content = request.Content?.Trim();
+        // 文字、圖片至少要有一個：兩個都是空的話，代表前端傳來一則「什麼都沒有」的訊息，
+        // 直接擋掉，不要存進資料庫。
+        if (string.IsNullOrWhiteSpace(content) && string.IsNullOrWhiteSpace(request.ImagePath))
         {
             return;
         }
@@ -45,7 +48,8 @@ public class ChatHub : Hub
         {
             SenderId = senderId,
             ReceiverId = request.ReceiverId,
-            Content = request.Content.Trim(),
+            Content = string.IsNullOrWhiteSpace(content) ? null : content,
+            ImagePath = request.ImagePath,
             SentAt = DateTimeOffset.Now,
             IsRead = false
         };
@@ -58,6 +62,7 @@ public class ChatHub : Hub
             SenderId = message.SenderId,
             ReceiverId = message.ReceiverId,
             Content = message.Content,
+            ImagePath = message.ImagePath,
             SentAt = message.SentAt,
             IsRead = message.IsRead
         };

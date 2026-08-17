@@ -118,6 +118,7 @@ public partial class CLOthingsContext : DbContext
             entity.HasKey(e => e.ChatMessageId);
 
             entity.Property(e => e.Content).HasMaxLength(1000);
+            entity.Property(e => e.ImagePath).HasMaxLength(255);
             entity.Property(e => e.SentAt).HasDefaultValueSql("(sysdatetimeoffset())");
             entity.Property(e => e.IsRead).HasDefaultValue(false);
 

@@ -7,6 +7,7 @@ public class ChatMessageDTO
     public int SenderId { get; set; }
     public int ReceiverId { get; set; }
     public string Content { get; set; }
+    public string? ImagePath { get; set; }
     public DateTimeOffset SentAt { get; set; }
     public bool IsRead { get; set; }
 }
@@ -28,4 +29,5 @@ public class SendMessageRequestDTO
 {
     public int ReceiverId { get; set; }
     public string Content { get; set; }
+    public string? ImagePath { get; set; }
 }
