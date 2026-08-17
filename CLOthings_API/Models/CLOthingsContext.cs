@@ -15,6 +15,8 @@ public partial class CLOthingsContext : DbContext
 
     public virtual DbSet<Cart> Cart { get; set; }
 
+    public virtual DbSet<ChatMessage> ChatMessage { get; set; }
+
     public virtual DbSet<CommunityFavorite> CommunityFavorite { get; set; }
 
     public virtual DbSet<CommunityPost> CommunityPost { get; set; }
@@ -109,6 +111,25 @@ public partial class CLOthingsContext : DbContext
             entity.HasOne(d => d.User).WithMany(p => p.Cart)
                 .HasForeignKey(d => d.UserId)
                 .HasConstraintName("FK_Cart_User");
+        });
+
+        modelBuilder.Entity<ChatMessage>(entity =>
+        {
+            entity.HasKey(e => e.ChatMessageId);
+
+            entity.Property(e => e.Content).HasMaxLength(1000);
+            entity.Property(e => e.SentAt).HasDefaultValueSql("(sysdatetimeoffset())");
+            entity.Property(e => e.IsRead).HasDefaultValue(false);
+
+            entity.HasOne(d => d.Sender).WithMany()
+                .HasForeignKey(d => d.SenderId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ChatMessage_Sender");
+
+            entity.HasOne(d => d.Receiver).WithMany()
+                .HasForeignKey(d => d.ReceiverId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ChatMessage_Receiver");
         });
 
         modelBuilder.Entity<CommunityFavorite>(entity =>
