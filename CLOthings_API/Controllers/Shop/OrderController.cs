@@ -73,6 +73,22 @@ namespace CLOthings_API.Controllers.Shop
             _context.Order.Add(order);
             await _context.SaveChangesAsync();
 
+            // ⑥ 清掉這次已下單的購物車項目
+            // 拿出這次下單的所有規格 id
+            var orderedSpecIds = dto.Items
+                .Select(i => i.ProductSpecificationId)
+                .ToList();
+
+            // 找出這個使用者購物車裡、屬於這次下單的項目
+            var cartItemsToRemove = await _context.Cart
+                .Where(c => c.UserId == userId
+                         && orderedSpecIds.Contains(c.ProductSpecificationId))
+                .ToListAsync();
+
+            // 刪除它們
+            _context.Cart.RemoveRange(cartItemsToRemove);
+            await _context.SaveChangesAsync();
+
             // 回傳新訂單的 id
             return Ok(new { message = "訂單建立成功", orderId = order.OrderId });
         }
