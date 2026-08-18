@@ -25,6 +25,8 @@ public partial class OrderDetail
 
     public virtual Order Order { get; set; }
 
+    public virtual ICollection<ProductReturnDetail> ProductReturnDetail { get; set; } = new List<ProductReturnDetail>();
+
     public virtual ProductSpecification ProductSpecification { get; set; }
 
     public virtual ICollection<Review> Review { get; set; } = new List<Review>();
