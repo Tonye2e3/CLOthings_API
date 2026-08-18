@@ -283,7 +283,11 @@ public class GroupOrderController : ControllerBase
 
         if (!string.IsNullOrWhiteSpace(status))
         {
-            query = query.Where(o => o.Status == status);
+            // 改用 Contains 而不是完全比對：結算作業流團自動取消訂單時，存的狀態字串是
+            // 「已取消（團購未成立，已退款）」，跟篩選選單裡單純的「已取消」不會完全比對成功，
+            // 篩「已取消」時這些訂單會被漏掉。改成 Contains 才能把這種帶原因的取消狀態也篩出來，
+            // 跟畫面上判斷徽章顏色（getBadgeClass）用的邏輯保持一致。
+            query = query.Where(o => o.Status.Contains(status));
         }
 
         var orders = await query.OrderByDescending(o => o.OrderDate).ToListAsync();

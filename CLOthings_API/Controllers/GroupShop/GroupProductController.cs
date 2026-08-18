@@ -16,10 +16,12 @@ public class GroupProductController : ControllerBase
 
     // GET: api/GroupProduct
     // keyword 選填，對應前端商品列表頁的搜尋框（商品名稱模糊搜尋）
+    // 買家端一律只回傳「上架中」的商品，已下架商品（GroupProductAdminView 刪除已有訂單的商品時
+    // 會把 Status 改成「已下架」，而不是真的刪除，用來保留歷史訂單資料）不應該再讓買家看到、買到
     [HttpGet]
     public async Task<ActionResult<IEnumerable<GroupProductDTO>>> GetGroupProducts([FromQuery] string keyword = null)
     {
-        var query = _context.GroupProduct.AsQueryable();
+        var query = _context.GroupProduct.Where(p => p.Status == "上架中");
 
         if (!string.IsNullOrWhiteSpace(keyword))
         {
@@ -44,11 +46,13 @@ public class GroupProductController : ControllerBase
     }
 
     // GET: api/GroupProduct/5
+    // 買家端商品詳情：同樣只允許看「上架中」的商品，已下架商品直接當成 404，
+    // 避免有人用舊的分享連結、或直接改網址上的 id，繞過商品列表頁看到已下架商品
     [HttpGet("{id}")]
     public async Task<ActionResult<GroupProductDTO>> GetGroupProduct(int id)
     {
         var product = await _context.GroupProduct.FindAsync(id);
-        if (product == null)
+        if (product == null || product.Status != "上架中")
         {
             return NotFound();
         }

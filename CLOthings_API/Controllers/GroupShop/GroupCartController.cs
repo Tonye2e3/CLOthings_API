@@ -79,6 +79,12 @@ public class GroupCartController : ControllerBase
         {
             return NotFound("找不到這個團購商品");
         }
+        // 已下架商品不能再被加入購物車，避免有人拿舊網址/舊分享連結、或商品下架前就開著的分頁，
+        // 繞過商品列表/詳情頁的過濾直接把已下架商品加進購物車
+        if (product.Status != "上架中")
+        {
+            return BadRequest("這個商品已經下架，無法加入購物車");
+        }
 
         // 前端目前還沒有尺寸/顏色選擇 UI，沒有指定規格的話就用該商品的第一個規格
         var specificationId = dto.GroupProductSpecificationId;

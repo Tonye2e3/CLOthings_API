@@ -47,6 +47,12 @@ public class GroupPaymentController : ControllerBase
     {
         public int UserId { get; set; }
         public GroupCheckoutDTO Dto { get; set; }
+        // 建立付款當下算好的應付金額，一併鎖起來存住。
+        // LINE Pay 規定 /confirm 的金額要跟 /request 當初送出去的金額完全一致，
+        // 不能等使用者從 LINE Pay 付款頁回來後才「重新」算一次金額再拿去 confirm——
+        // 如果這段等待期間購物車被改了、或團購門檻被別人的訂單推過去，兩次算出來的金額就會兜不起來，
+        // 導致使用者明明已經付款成功，LINE Pay 的 confirm 卻會被拒絕。
+        public int Amount { get; set; }
     }
 
     // POST: api/GroupPayment/create
@@ -70,7 +76,7 @@ public class GroupPaymentController : ControllerBase
         var amount = await CalculateAmountAsync(userId);
 
         var paymentId = Guid.NewGuid().ToString("N");
-        PendingPayments[paymentId] = new PendingPaymentEntry { UserId = userId, Dto = dto };
+        PendingPayments[paymentId] = new PendingPaymentEntry { UserId = userId, Dto = dto, Amount = amount };
 
         return Ok(new CreatePaymentResultDTO
         {
@@ -120,7 +126,11 @@ public class GroupPaymentController : ControllerBase
         return Ok(new PendingPaymentDTO
         {
             PaymentId = paymentId,
-            Amount = await CalculateAmountAsync(entry.UserId),
+            // 改用 CreatePayment 當初鎖住存好的金額，不要再重新計算——
+            // 跟 LINE Pay 那邊的 ConfirmLinePay 保持同一套邏輯：使用者在這個「確認訂單」頁面
+            // 停留期間，就算購物車內容或團購門檻變了，這裡顯示的金額也要跟最後 ConfirmPayment
+            // 實際建立訂單時的金額一致，不能讓畫面顯示一個數字、卻用另一個數字建單
+            Amount = entry.Amount,
             PaymentMethod = dto.PaymentMethod,
             Items = items
         });
@@ -199,7 +209,9 @@ public class GroupPaymentController : ControllerBase
         var amount = subtotal + freight;
 
         var paymentId = Guid.NewGuid().ToString("N");
-        PendingPayments[paymentId] = new PendingPaymentEntry { UserId = userId, Dto = dto };
+        // 把這次 request 送出去的金額鎖起來存住，等使用者從 LINE Pay 付款頁回來 confirm 時直接複用，
+        // 不要再重新計算一次（見 PendingPaymentEntry.Amount 的說明）
+        PendingPayments[paymentId] = new PendingPaymentEntry { UserId = userId, Dto = dto, Amount = amount };
 
         // LINE Pay 規定 packages[].amount 要等於底下 products 的加總，這裡把購物車品項跟運費分開列成兩個 product
         var products = priced.Select(p => new
@@ -279,7 +291,10 @@ public class GroupPaymentController : ControllerBase
             return Redirect($"{frontendFailUrl}?linepay=fail&reason=not_found");
         }
 
-        var amount = await CalculateAmountAsync(entry.UserId);
+        // 直接用 request 當初鎖住的金額，不能重新計算——
+        // 如果這段等待期間購物車變了或團購門檻被別人推過去，重新算出來的金額會跟 LINE Pay
+        // 那邊實際請款/顯示給使用者看的金額對不上，導致這支 confirm 被 LINE Pay 拒絕
+        var amount = entry.Amount;
 
         var confirmBody = new { amount, currency = "TWD" };
         var (success, resultJson) = await CallLinePayApiAsync("POST", $"/v3/payments/{transactionId}/confirm", confirmBody);
