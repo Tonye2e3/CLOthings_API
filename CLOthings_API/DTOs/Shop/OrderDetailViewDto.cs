@@ -14,6 +14,7 @@
     // 訂單裡的每個商品明細
     public class OrderItemViewDto
     {
+        public int OrderDetailId { get; set; }
         public string ProductName { get; set; }
         public string Color { get; set; }
         public string Size { get; set; }

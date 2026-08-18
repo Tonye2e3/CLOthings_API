@@ -99,7 +99,7 @@ namespace CLOthings_API.Controllers.Shop
         [HttpGet]
         public async Task<IActionResult> GetMyOrders()
         {
-    // ① 從 token 讀 userId
+            // ① 從 token 讀 userId
             var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
 
             // ② 撈我的訂單，撈的時候要.Include 明細（才能算總金額）
@@ -139,6 +139,7 @@ namespace CLOthings_API.Controllers.Shop
                     Total = o.OrderDetail.Sum(d => d.Price * d.Quantity),
                     Items = o.OrderDetail.Select(d => new OrderItemViewDto
                     {
+                        OrderDetailId = d.OrderDetailId,
                         ProductName = d.ProductSpecification.Product.ProductName,
                         Color = d.ProductSpecification.Color,
                         Size = d.ProductSpecification.Size,
