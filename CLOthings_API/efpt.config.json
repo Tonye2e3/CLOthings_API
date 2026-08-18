@@ -23,6 +23,14 @@
          "ObjectType": 0
       },
       {
+         "Name": "[dbo].[ChatMessage]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[ChatMessageImage]",
+         "ObjectType": 0
+      },
+      {
          "Name": "[dbo].[CommunityFavorite]",
          "ObjectType": 0
       },
@@ -123,6 +131,10 @@
          "ObjectType": 0
       },
       {
+         "Name": "[dbo].[PostShortUrl]",
+         "ObjectType": 0
+      },
+      {
          "Name": "[dbo].[PostTaggedProduct]",
          "ObjectType": 0
       },
@@ -136,6 +148,14 @@
       },
       {
          "Name": "[dbo].[ProductImg]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[ProductReturn]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[ProductReturnDetail]",
          "ObjectType": 0
       },
       {
