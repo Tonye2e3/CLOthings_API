@@ -15,6 +15,10 @@ public partial class CLOthingsContext : DbContext
 
     public virtual DbSet<Cart> Cart { get; set; }
 
+    public virtual DbSet<ChatMessage> ChatMessage { get; set; }
+
+    public virtual DbSet<ChatMessageImage> ChatMessageImage { get; set; }
+
     public virtual DbSet<CommunityFavorite> CommunityFavorite { get; set; }
 
     public virtual DbSet<CommunityPost> CommunityPost { get; set; }
@@ -65,6 +69,8 @@ public partial class CLOthingsContext : DbContext
 
     public virtual DbSet<PostLike> PostLike { get; set; }
 
+    public virtual DbSet<PostShortUrl> PostShortUrl { get; set; }
+
     public virtual DbSet<PostTaggedProduct> PostTaggedProduct { get; set; }
 
     public virtual DbSet<Product> Product { get; set; }
@@ -72,6 +78,10 @@ public partial class CLOthingsContext : DbContext
     public virtual DbSet<ProductCategory> ProductCategory { get; set; }
 
     public virtual DbSet<ProductImg> ProductImg { get; set; }
+
+    public virtual DbSet<ProductReturn> ProductReturn { get; set; }
+
+    public virtual DbSet<ProductReturnDetail> ProductReturnDetail { get; set; }
 
     public virtual DbSet<ProductSpecification> ProductSpecification { get; set; }
 
@@ -93,6 +103,8 @@ public partial class CLOthingsContext : DbContext
 
     public virtual DbSet<UserProfile> UserProfile { get; set; }
 
+    public virtual DbSet<UserRefreshToken> UserRefreshToken { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Cart>(entity =>
@@ -105,6 +117,44 @@ public partial class CLOthingsContext : DbContext
             entity.HasOne(d => d.User).WithMany(p => p.Cart)
                 .HasForeignKey(d => d.UserId)
                 .HasConstraintName("FK_Cart_User");
+        });
+
+        modelBuilder.Entity<ChatMessage>(entity =>
+        {
+            entity.HasKey(e => e.ChatMessageId).HasName("PK__ChatMess__9AB61035599F12DE");
+
+            entity.HasIndex(e => new { e.ReceiverId, e.SenderId }, "IX_ChatMessage_ReceiverId_SenderId");
+
+            entity.HasIndex(e => new { e.SenderId, e.ReceiverId }, "IX_ChatMessage_SenderId_ReceiverId");
+
+            entity.Property(e => e.Content).HasMaxLength(1000);
+            entity.Property(e => e.ImagePath).HasMaxLength(255);
+            entity.Property(e => e.SentAt).HasDefaultValueSql("(sysdatetimeoffset())");
+
+            entity.HasOne(d => d.Receiver).WithMany(p => p.ChatMessageReceiver)
+                .HasForeignKey(d => d.ReceiverId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ChatMessage_Receiver");
+
+            entity.HasOne(d => d.Sender).WithMany(p => p.ChatMessageSender)
+                .HasForeignKey(d => d.SenderId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ChatMessage_Sender");
+        });
+
+        modelBuilder.Entity<ChatMessageImage>(entity =>
+        {
+            entity.HasKey(e => e.ChatMessageImageId).HasName("PK__ChatMess__4147580536758337");
+
+            entity.HasIndex(e => e.ChatMessageId, "IX_ChatMessageImage_ChatMessageId");
+
+            entity.Property(e => e.ImagePath)
+                .IsRequired()
+                .HasMaxLength(255);
+
+            entity.HasOne(d => d.ChatMessage).WithMany(p => p.ChatMessageImage)
+                .HasForeignKey(d => d.ChatMessageId)
+                .HasConstraintName("FK_ChatMessageImage_ChatMessage");
         });
 
         modelBuilder.Entity<CommunityFavorite>(entity =>
@@ -227,7 +277,6 @@ public partial class CLOthingsContext : DbContext
             entity.Property(e => e.Title)
                 .IsRequired()
                 .HasMaxLength(50);
-            entity.Property(e => e.ReplyContent).HasMaxLength(1000);
 
             entity.HasOne(d => d.GroupOrder).WithMany(p => p.GroupCustomerService)
                 .HasForeignKey(d => d.GroupOrderId)
@@ -564,6 +613,26 @@ public partial class CLOthingsContext : DbContext
                 .HasConstraintName("FK_PostLike_User");
         });
 
+        modelBuilder.Entity<PostShortUrl>(entity =>
+        {
+            entity.HasKey(e => e.PostShortUrlId).HasName("PK__PostShor__EBFDF692E99A53FC");
+
+            entity.HasIndex(e => e.CommunityPostId, "UQ_PostShortUrl_CommunityPostId").IsUnique();
+
+            entity.HasIndex(e => e.ShortCode, "UQ_PostShortUrl_ShortCode").IsUnique();
+
+            entity.Property(e => e.CreatedDate).HasDefaultValueSql("(sysdatetimeoffset())");
+            entity.Property(e => e.ShortCode)
+                .IsRequired()
+                .HasMaxLength(10)
+                .IsUnicode(false);
+
+            entity.HasOne(d => d.CommunityPost).WithOne(p => p.PostShortUrl)
+                .HasForeignKey<PostShortUrl>(d => d.CommunityPostId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_PostShortUrl_CommunityPost");
+        });
+
         modelBuilder.Entity<PostTaggedProduct>(entity =>
         {
             entity.Property(e => e.ProductRoute).HasMaxLength(255);
@@ -615,6 +684,42 @@ public partial class CLOthingsContext : DbContext
             entity.HasOne(d => d.Product).WithMany(p => p.ProductImg)
                 .HasForeignKey(d => d.ProductId)
                 .HasConstraintName("FK_ProductImg_Product");
+        });
+
+        modelBuilder.Entity<ProductReturn>(entity =>
+        {
+            entity.HasKey(e => e.ReturnId).HasName("PK__Return__F445E9A8FA07816E");
+
+            entity.Property(e => e.Reason).HasMaxLength(500);
+            entity.Property(e => e.RefundAmount).HasColumnType("decimal(10, 2)");
+            entity.Property(e => e.Status)
+                .IsRequired()
+                .HasMaxLength(50);
+
+            entity.HasOne(d => d.Order).WithMany(p => p.ProductReturn)
+                .HasForeignKey(d => d.OrderId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_Return_Order");
+
+            entity.HasOne(d => d.User).WithMany(p => p.ProductReturn)
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_Return_User");
+        });
+
+        modelBuilder.Entity<ProductReturnDetail>(entity =>
+        {
+            entity.HasKey(e => e.ReturnDetailId).HasName("PK__ReturnDe__8B89C98A68020433");
+
+            entity.HasOne(d => d.OrderDetail).WithMany(p => p.ProductReturnDetail)
+                .HasForeignKey(d => d.OrderDetailId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ReturnDetail_OrderDetail");
+
+            entity.HasOne(d => d.Return).WithMany(p => p.ProductReturnDetail)
+                .HasForeignKey(d => d.ReturnId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ReturnDetail_Return");
         });
 
         modelBuilder.Entity<ProductSpecification>(entity =>
@@ -786,6 +891,22 @@ public partial class CLOthingsContext : DbContext
             entity.HasOne(d => d.User).WithMany(p => p.UserProfile)
                 .HasForeignKey(d => d.UserId)
                 .HasConstraintName("FK_UserProfile_User");
+        });
+
+        modelBuilder.Entity<UserRefreshToken>(entity =>
+        {
+            entity.HasKey(e => e.UserRefreshTokenId).HasName("PK__UserRefr__76DBA1D1C64A0B50");
+
+            entity.HasIndex(e => e.TokenHash, "IX_UserRefreshToken_TokenHash").IsUnique();
+
+            entity.Property(e => e.ReplacedByTokenHash).HasMaxLength(200);
+            entity.Property(e => e.TokenHash)
+                .IsRequired()
+                .HasMaxLength(200);
+
+            entity.HasOne(d => d.User).WithMany(p => p.UserRefreshToken)
+                .HasForeignKey(d => d.UserId)
+                .HasConstraintName("FK_UserRefreshToken_User");
         });
 
         OnModelCreatingPartial(modelBuilder);

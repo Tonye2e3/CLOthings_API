@@ -43,6 +43,8 @@ public partial class Order
 
     public virtual PaymentMethod PaymentMethod { get; set; }
 
+    public virtual ICollection<ProductReturn> ProductReturn { get; set; } = new List<ProductReturn>();
+
     public virtual Shipper Shipper { get; set; }
 
     public virtual User User { get; set; }

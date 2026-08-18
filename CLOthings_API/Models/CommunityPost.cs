@@ -23,6 +23,8 @@ public partial class CommunityPost
 
     public virtual ICollection<PostLike> PostLike { get; set; } = new List<PostLike>();
 
+    public virtual PostShortUrl PostShortUrl { get; set; }
+
     public virtual ICollection<PostTaggedProduct> PostTaggedProduct { get; set; } = new List<PostTaggedProduct>();
 
     public virtual User User { get; set; }
