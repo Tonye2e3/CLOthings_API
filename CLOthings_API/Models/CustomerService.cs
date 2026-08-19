@@ -9,7 +9,7 @@ public partial class CustomerService
 {
     public int CustomerServiceId { get; set; }
 
-    public int OrderId { get; set; }
+    public int? OrderId { get; set; }
 
     public string Name { get; set; }
 
