@@ -38,7 +38,7 @@ namespace CLOthings_API.Controllers.Shop
             var order = new Order
             {
                 UserId = userId,
-                Status = "待出貨",                    // 後端決定初始狀態
+                Status = "待付款",                    // 後端決定初始狀態
                 OrderDate = DateTimeOffset.UtcNow,     // 現在時間
                 ShipName = dto.ShipName,
                 ShipAddress = dto.ShipAddress,
