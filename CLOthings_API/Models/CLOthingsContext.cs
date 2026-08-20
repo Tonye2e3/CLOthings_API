@@ -878,6 +878,11 @@ public partial class CLOthingsContext : DbContext
                 .HasMaxLength(255)
                 .IsUnicode(false);
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("(getdate())", "DF_UserOAuth_UpdatedAt");
+
+            entity.HasOne(d => d.User).WithMany(p => p.UserOAuth)
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_UserOAuth_User");
         });
 
         modelBuilder.Entity<UserProfile>(entity =>

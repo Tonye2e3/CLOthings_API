@@ -26,4 +26,6 @@ public partial class UserOAuth
     public string RefreshToken { get; set; }
 
     public DateTimeOffset? ExpiresAt { get; set; }
+
+    public virtual User User { get; set; }
 }
