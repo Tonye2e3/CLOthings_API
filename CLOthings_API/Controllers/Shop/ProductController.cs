@@ -40,7 +40,7 @@ namespace CLOthings_API.Controllers.Shop
             return Ok(products);
         }
 
-        // GET api/product/5
+        // GET api/product/id
         [HttpGet("{id}")]
         public async Task<IActionResult> GetProduct(int id)
         {
@@ -74,6 +74,7 @@ namespace CLOthings_API.Controllers.Shop
 
             return Ok(product);
         }
+
 
 
 

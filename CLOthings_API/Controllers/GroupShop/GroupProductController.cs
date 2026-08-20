@@ -23,6 +23,15 @@ public class GroupProductController : ControllerBase
     {
         var query = _context.GroupProduct.Where(p => p.Status == "上架中");
 
+        // 買家端看不到「已下架」跟「已流團」的商品；「已成團」是結算後的正常結果狀態，
+        // 首頁「已達團購數量 (完成)」區塊要用得到，所以買家端還是看得到，只是不能再加入購物車（AddToCart 那邊擋）。
+        // 管理端（商品管理頁也是打這支）不受限，要看得到全部狀態才能管理。
+        var isAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
+        if (!isAdmin)
+        {
+            query = query.Where(p => p.Status != "已下架" && p.Status != "已流團");
+        }
+
         if (!string.IsNullOrWhiteSpace(keyword))
         {
             query = query.Where(p => p.ProductName.Contains(keyword));
@@ -53,6 +62,13 @@ public class GroupProductController : ControllerBase
     {
         var product = await _context.GroupProduct.FindAsync(id);
         if (product == null || product.Status != "上架中")
+        {
+            return NotFound();
+        }
+
+        // 商品「已下架」或「已流團」的話，買家端一律當 404 處理；「已成團」的話買家端還是看得到（結算後的正常結果），管理端不受限
+        var isAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
+        if (!isAdmin && (product.Status == "已下架" || product.Status == "已流團"))
         {
             return NotFound();
         }
@@ -280,8 +296,16 @@ public class GroupProductController : ControllerBase
 
         var specs = await _context.GroupProductSpecification.Where(s => s.GroupProductId == id).ToListAsync();
         var tiers = await _context.GroupDiscountStandard.Where(t => t.GroupProductId == id).ToListAsync();
+        // 沒有訂單不代表沒有其他關聯資料：曾被瀏覽/加入購物車/收藏過的商品也會留下這幾張表的紀錄，
+        // 不清掉的話，硬刪除商品時會因為外鍵約束直接噴 500
+        var carts = await _context.GroupCart.Where(c => c.GroupProductId == id).ToListAsync();
+        var favorites = await _context.GroupCustomerFavorite.Where(f => f.GroupProductId == id).ToListAsync();
+        var stats = await _context.GroupSellerStatistic.Where(s => s.GroupProductId == id).ToListAsync();
         _context.GroupProductSpecification.RemoveRange(specs);
         _context.GroupDiscountStandard.RemoveRange(tiers);
+        _context.GroupCart.RemoveRange(carts);
+        _context.GroupCustomerFavorite.RemoveRange(favorites);
+        _context.GroupSellerStatistic.RemoveRange(stats);
         _context.GroupProduct.Remove(product);
         await _context.SaveChangesAsync();
 

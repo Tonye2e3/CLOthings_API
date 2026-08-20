@@ -1,6 +1,5 @@
 ﻿using CLOthings.Enums;
 using CLOthings_API.DTO.User;
-using CLOthings_API.DTOs;
 using CLOthings_API.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -9,8 +8,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Text;
 using System.Security.Cryptography;
+using System.Text;
 
 namespace CLOthings_API.Controllers
 {
@@ -152,7 +151,7 @@ namespace CLOthings_API.Controllers
                 issuer: _configuration["Jwt:Issuer"],
                 audience: _configuration["Jwt:Audience"],
                 claims: claims,
-                expires: DateTime.UtcNow.AddHours(2),
+                expires: DateTime.UtcNow.AddMinutes(20),
                 signingCredentials: credentials
             );
 
@@ -186,6 +185,7 @@ namespace CLOthings_API.Controllers
 
         // POST: api/Auth/refresh
         [HttpPost("refresh")]
+        [AllowAnonymous]
         public async Task<ActionResult> Refresh()
         {
             // 1. 從 HttpOnly Cookie 取得 Refresh Token
@@ -276,5 +276,47 @@ namespace CLOthings_API.Controllers
             });
         }
 
+
+        // POST api/User/logout
+        [HttpPost("logout")]
+        [AllowAnonymous]
+        public async Task<IActionResult> Logout()
+        {
+            // 從 HttpOnly Cookie 取得 Refresh Token
+            if (Request.Cookies.TryGetValue("refreshToken", out var refreshToken))
+            {
+                // 將 Refresh Token Hash
+                var refreshTokenHash = HashRefreshToken(refreshToken);
+
+                // 找資料庫裡對應的 Refresh Token
+                var storedToken = await _context.UserRefreshToken
+                    .FirstOrDefaultAsync(t =>
+                        t.TokenHash == refreshTokenHash &&
+                        t.RevokedAt == null);
+
+                // 如果找得到，就撤銷它
+                if (storedToken != null)
+                {
+                    storedToken.RevokedAt = DateTimeOffset.UtcNow;
+
+                    await _context.SaveChangesAsync();
+                }
+            }
+
+            // 不管資料庫有沒有找到 Token
+            // 都把瀏覽器的 refreshToken Cookie 刪掉
+            Response.Cookies.Delete(
+                "refreshToken",
+                new CookieOptions
+                {
+                    HttpOnly = true,
+                    Secure = true,
+                    SameSite = SameSiteMode.None
+                }
+            );
+
+            // 登出成功
+            return NoContent();
+        }
     }
 }
