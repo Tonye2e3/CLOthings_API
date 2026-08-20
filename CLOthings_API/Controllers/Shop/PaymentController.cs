@@ -58,6 +58,7 @@ namespace CLOthings_API.Controllers.Shop
                 { "ChoosePayment", "ALL" },
                 { "EncryptType", "1" },
                 { "CustomField1", orderId.ToString() },
+                { "OrderResultURL", _config["ECPay:ReturnUrl"].Replace("/notify", "/result") },
             };
 
             // 算檢查碼
@@ -134,6 +135,18 @@ namespace CLOthings_API.Controllers.Shop
             return Content("1|OK");   // 一定要回這個給綠界
         }
 
+        // POST api/payment/result —— 綠界把使用者導回這裡，再轉去前端
+        [HttpPost("result")]
+        [AllowAnonymous]
+        public IActionResult Result([FromForm] IFormCollection form)
+        {
+            var rtnCode = form["RtnCode"].ToString();       // 1 = 成功
+            var orderId = form["CustomField1"].ToString();  // 訂單 id
+
+            // 重導向到前端付款完成頁，帶上結果
+            var frontendUrl = $"http://localhost:5173/shop/payment-result?orderId={orderId}&success={(rtnCode == "1" ? "1" : "0")}";
+            return Redirect(frontendUrl);
+        }
     }
 
 
