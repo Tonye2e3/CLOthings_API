@@ -54,7 +54,7 @@ namespace CLOthings_API.Controllers.Shop
                 { "TotalAmount", totalAmount.ToString() },
                 { "TradeDesc", "CLOthings Order" },
                 { "ItemName", "CLOthings 商品訂單" },
-                { "ReturnURL", "https://finite-murkiness-untimely.ngrok-free.dev/api/payment/notify" },// 之後改 ngrok
+                { "ReturnURL", _config["ECPay:ReturnUrl"] },// 之後改 ngrok
                 { "ChoosePayment", "ALL" },
                 { "EncryptType", "1" },
                 { "CustomField1", orderId.ToString() },
