@@ -35,6 +35,10 @@ public partial class User
 
     public virtual ICollection<Cart> Cart { get; set; } = new List<Cart>();
 
+    public virtual ICollection<ChatMessage> ChatMessageReceiver { get; set; } = new List<ChatMessage>();
+
+    public virtual ICollection<ChatMessage> ChatMessageSender { get; set; } = new List<ChatMessage>();
+
     public virtual ICollection<CommunityFavorite> CommunityFavorite { get; set; } = new List<CommunityFavorite>();
 
     public virtual ICollection<CommunityPost> CommunityPost { get; set; } = new List<CommunityPost>();
@@ -56,6 +60,8 @@ public partial class User
     public virtual ICollection<PostComment> PostComment { get; set; } = new List<PostComment>();
 
     public virtual ICollection<PostLike> PostLike { get; set; } = new List<PostLike>();
+
+    public virtual ICollection<ProductReturn> ProductReturn { get; set; } = new List<ProductReturn>();
 
     public virtual ICollection<Review> Review { get; set; } = new List<Review>();
 
