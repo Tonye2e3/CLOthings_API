@@ -19,7 +19,6 @@ public partial class CLOthingsContext : DbContext
 
     public virtual DbSet<ChatMessageImage> ChatMessageImage { get; set; }
 
-
     public virtual DbSet<CommunityFavorite> CommunityFavorite { get; set; }
 
     public virtual DbSet<CommunityPost> CommunityPost { get; set; }
@@ -143,61 +142,6 @@ public partial class CLOthingsContext : DbContext
                 .HasConstraintName("FK_ChatMessage_Sender");
         });
 
-        modelBuilder.Entity<ChatMessage>(entity =>
-        {
-            entity.HasKey(e => e.ChatMessageId);
-
-            entity.Property(e => e.Content).HasMaxLength(1000);
-            entity.Property(e => e.ImagePath).HasMaxLength(255);
-            entity.Property(e => e.SentAt).HasDefaultValueSql("(sysdatetimeoffset())");
-            entity.Property(e => e.IsRead).HasDefaultValue(false);
-
-            entity.HasOne(d => d.Sender).WithMany()
-                .HasForeignKey(d => d.SenderId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK_ChatMessage_Sender");
-
-            entity.HasOne(d => d.Receiver).WithMany()
-                .HasForeignKey(d => d.ReceiverId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK_ChatMessage_Receiver");
-        });
-
-        modelBuilder.Entity<ChatMessageImage>(entity =>
-        {
-            entity.HasKey(e => e.ChatMessageImageId);
-
-            entity.Property(e => e.ImagePath).HasMaxLength(255).IsRequired();
-
-            entity.HasOne(d => d.ChatMessage).WithMany(p => p.ChatMessageImage)
-                .HasForeignKey(d => d.ChatMessageId)
-                .OnDelete(DeleteBehavior.Cascade)
-                .HasConstraintName("FK_ChatMessageImage_ChatMessage");
-        });
-
-        modelBuilder.Entity<ChatMessage>(entity =>
-        {
-            entity.HasKey(e => e.ChatMessageId).HasName("PK__ChatMess__9AB61035599F12DE");
-
-            entity.HasIndex(e => new { e.ReceiverId, e.SenderId }, "IX_ChatMessage_ReceiverId_SenderId");
-
-            entity.HasIndex(e => new { e.SenderId, e.ReceiverId }, "IX_ChatMessage_SenderId_ReceiverId");
-
-            entity.Property(e => e.Content).HasMaxLength(1000);
-            entity.Property(e => e.ImagePath).HasMaxLength(255);
-            entity.Property(e => e.SentAt).HasDefaultValueSql("(sysdatetimeoffset())");
-
-            entity.HasOne(d => d.Receiver).WithMany(p => p.ChatMessageReceiver)
-                .HasForeignKey(d => d.ReceiverId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK_ChatMessage_Receiver");
-
-            entity.HasOne(d => d.Sender).WithMany(p => p.ChatMessageSender)
-                .HasForeignKey(d => d.SenderId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK_ChatMessage_Sender");
-        });
-
         modelBuilder.Entity<ChatMessageImage>(entity =>
         {
             entity.HasKey(e => e.ChatMessageImageId).HasName("PK__ChatMess__4147580536758337");
@@ -279,6 +223,7 @@ public partial class CLOthingsContext : DbContext
 
             entity.HasOne(d => d.Order).WithMany(p => p.CustomerService)
                 .HasForeignKey(d => d.OrderId)
+                .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("FK_CustomerService_Order");
         });
 
@@ -913,6 +858,10 @@ public partial class CLOthingsContext : DbContext
 
         modelBuilder.Entity<UserOAuth>(entity =>
         {
+            entity.HasIndex(e => new { e.Provider, e.ProviderUserId }, "UQ_UserOAuth_Provider_ProviderUserId").IsUnique();
+
+            entity.HasIndex(e => new { e.UserId, e.Provider }, "UQ_UserOAuth_UserId_Provider").IsUnique();
+
             entity.Property(e => e.AccessToken)
                 .HasMaxLength(255)
                 .IsUnicode(false);
