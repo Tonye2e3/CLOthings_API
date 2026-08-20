@@ -21,7 +21,6 @@
 
   <ItemGroup>
     <Folder Include="Controllers\GroupShop\" />
-    <Folder Include="DTOs\Community\" />
     <Folder Include="DTOs\GroupShop\" />
     <Folder Include="wwwroot\images\user\avatars\" />
   </ItemGroup>
