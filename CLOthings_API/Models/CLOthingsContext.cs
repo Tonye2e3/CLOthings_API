@@ -865,9 +865,11 @@ public partial class CLOthingsContext : DbContext
             entity.Property(e => e.AccessToken)
                 .HasMaxLength(255)
                 .IsUnicode(false);
-            entity.Property(e => e.ExpiresAt).HasColumnType("datetime");
-            entity.Property(e => e.Provider)
+            entity.Property(e => e.Email)
                 .HasMaxLength(255)
+                .IsUnicode(false);
+            entity.Property(e => e.Provider)
+                .HasMaxLength(50)
                 .IsUnicode(false);
             entity.Property(e => e.ProviderUserId)
                 .HasMaxLength(255)
@@ -876,10 +878,6 @@ public partial class CLOthingsContext : DbContext
                 .HasMaxLength(255)
                 .IsUnicode(false);
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("(getdate())", "DF_UserOAuth_UpdatedAt");
-
-            entity.HasOne(d => d.User).WithMany(p => p.UserOAuth)
-                .HasForeignKey(d => d.UserId)
-                .HasConstraintName("FK_UserOAuth_User");
         });
 
         modelBuilder.Entity<UserProfile>(entity =>
