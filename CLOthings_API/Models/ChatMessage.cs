@@ -40,4 +40,5 @@ public partial class ChatMessage
 
     public virtual User Receiver { get; set; }
 
+    public virtual User Sender { get; set; }
 }

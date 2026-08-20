@@ -80,6 +80,12 @@ public class GroupCartController : ControllerBase
             return NotFound("找不到這個團購商品");
         }
 
+        // 已下架/已成團/已流團的商品不能再加入購物車
+        if (product.Status != "上架中")
+        {
+            return BadRequest("這個商品目前無法加入購物車（已下架或團購已結束）");
+        }
+
         // 前端目前還沒有尺寸/顏色選擇 UI，沒有指定規格的話就用該商品的第一個規格
         var specificationId = dto.GroupProductSpecificationId;
         if (specificationId == null)
