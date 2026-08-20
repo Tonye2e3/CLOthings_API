@@ -100,6 +100,7 @@ namespace CLOthings_API.Controllers
             return Ok(new
             {
                 token = accessToken,
+                userId = user.UserId,
                 name = user.Username,
                 account = user.Account,
                 role = ((UserTypeEnum)user.UserType).ToString()
