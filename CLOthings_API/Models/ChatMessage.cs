@@ -35,12 +35,9 @@ public partial class ChatMessage
     public bool IsRead { get; set; }
 
     public virtual User Sender { get; set; }
-    public string ImagePath { get; set; }
 
     public virtual ICollection<ChatMessageImage> ChatMessageImage { get; set; } = new List<ChatMessageImage>();
 
     public virtual User Receiver { get; set; }
 
-    public virtual ICollection<ChatMessageImage> ChatMessageImage { get; set; } = new List<ChatMessageImage>();
-    public virtual User Sender { get; set; }
 }
