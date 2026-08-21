@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Authentication.Google;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -34,7 +35,18 @@ builder.Services.AddDbContext<CLOthingsContext>(options =>
 
 // JWT 驗證
 builder.Services
-    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddAuthentication(options =>
+    {
+        options.DefaultAuthenticateScheme =
+            JwtBearerDefaults.AuthenticationScheme;
+
+        options.DefaultChallengeScheme =
+            JwtBearerDefaults.AuthenticationScheme;
+    })
+
+    // Google OAuth 暫存登入狀態
+    .AddCookie("External")
+
     .AddJwtBearer(options =>
     {
         options.TokenValidationParameters = new TokenValidationParameters
@@ -53,7 +65,6 @@ builder.Services
                 )
             ),
             // JWT 過期時間不給額外容許誤差
-            // 現在測試 Access Token 5 秒過期時很重要
             ClockSkew = TimeSpan.Zero
         };
 
@@ -79,17 +90,22 @@ builder.Services
             }
         };
     })
-// 🟢【新增】Google OAuth
+
+// Google OAuth
 .AddGoogle("Google", options =>
 {
+    // Google 登入完成後，暫時把身分放進 External Cookie
+    options.SignInScheme = "External";
+
     options.ClientId =
         builder.Configuration["Authentication:Google:ClientId"]!;
 
     options.ClientSecret =
         builder.Configuration["Authentication:Google:ClientSecret"]!;
 
+    // Google 驗證完成後回到 ASP.NET Core
     options.CallbackPath = "/signin-google";
-
+    // 保存 Google 回傳的 Token
     options.SaveTokens = true;
 });
 
