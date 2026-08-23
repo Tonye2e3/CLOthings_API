@@ -1,8 +1,10 @@
 ﻿using CLOthings_API.Models;
+using CLOthings_API.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using System.Security.Claims;
 
 namespace CLOthings_API.Controllers
@@ -14,17 +16,18 @@ namespace CLOthings_API.Controllers
     {
         // 🟢【新增】
         private readonly CLOthingsContext _context;
+        private readonly IMemoryCache _cache;
+        private readonly AuthTokenService _authTokenService;
 
         // 🟢【新增】
-        public GoogleOAuthController(CLOthingsContext context)
+        public GoogleOAuthController(CLOthingsContext context, IMemoryCache cache, AuthTokenService authTokenService)
         {
             _context = context;
+            _cache = cache;
+            _authTokenService = authTokenService;
         }
 
-        // =============================================
         // GET: api/User/google/login
-        // =============================================
-
         [HttpGet("login")]
         [AllowAnonymous]
         public IActionResult GoogleLogin()
@@ -98,8 +101,78 @@ namespace CLOthings_API.Controllers
                     c.Type == ClaimTypes.Name)
                 ?.Value;
 
+            // =============================================
+            // 🟢 Google 登入流程
+            // =============================================
+            if (flow == "login")
+            {
+                // Google 沒有提供唯一 ID，不能繼續
+                if (string.IsNullOrEmpty(providerUserId))
+                {
+                    return Unauthorized("無法取得 Google 使用者識別碼");
+                }
+
+                // 用 Google 的唯一 ID 尋找綁定紀錄
+                var googleOAuth = await _context.UserOAuth
+                    .Include(o => o.User)
+                    .FirstOrDefaultAsync(o =>
+                        o.Provider == "Google" &&
+                        o.ProviderUserId == providerUserId
+                    );
+
+                // 還沒有任何 CLOthings 帳號綁定這個 Google
+                if (googleOAuth == null)
+                {
+                    return NotFound(new
+                    {
+                        message = "此 Google 帳號尚未綁定 CLOthings 帳號",
+                        email
+                    });
+                }
+
+                // 找到對應會員
+                var user = googleOAuth.User;
+
+                if (user == null)
+                {
+                    return NotFound("找不到對應會員");
+                }
+
+                // 🟢 建立 CLOthings 登入 Token
+                var tokenResult =
+                    await _authTokenService
+                        .CreateLoginTokenAsync(user);
+
+                // 🟢 Refresh Token 放進 HttpOnly Cookie
+                Response.Cookies.Append(
+                    "refreshToken",
+                    tokenResult.RefreshToken,
+                    new CookieOptions
+                    {
+                        HttpOnly = true,
+                        Secure = true,
+                        SameSite = SameSiteMode.None,
+                        Expires = tokenResult.RefreshTokenExpiresAt
+                    }
+                );
+
+                // 🟢 回傳 Access Token 與會員資料
+                return Ok(new
+                {
+                    token = tokenResult.AccessToken,
+
+                    userId = tokenResult.UserId,
+
+                    name = tokenResult.Name,
+
+                    account = tokenResult.Account,
+
+                    role = tokenResult.Role
+                });
+            }
+
             // =====================================================
-            // 🟢【新增】Google 綁定流程
+            // 🟢Google 綁定流程
             // =====================================================
             if (flow == "bind")
             {
@@ -176,12 +249,7 @@ namespace CLOthings_API.Controllers
                 await _context.SaveChangesAsync();
 
                 // 🟢【新增】綁定成功
-                return Ok(new
-                {
-                    message = "Google 帳號綁定成功",
-                    provider = "Google",
-                    email
-                });
+                return Redirect("http://localhost:5173/user");
             }
 
             // 暫時回傳資料測試
@@ -199,35 +267,97 @@ namespace CLOthings_API.Controllers
             });
         }
 
-        // 綁定 Google
-        // GET: api/User/google/bind
-        [HttpGet("bind")]
+        // 🟢建立 Google 綁定流程
+        // POST: api/User/google/bind/start
+        [HttpPost("bind/start")]
         [Authorize]
-        public IActionResult GoogleBind()
+        public IActionResult StartGoogleBind()
         {
-            // 🟢 從目前 CLOthings JWT 取得登入會員 UserId
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            // 從 JWT 取得目前登入會員
+            var userId = User.FindFirstValue(
+                ClaimTypes.NameIdentifier
+            );
 
             if (string.IsNullOrEmpty(userId))
             {
-                return Unauthorized("無法取得目前登入會員");
+                return Unauthorized(
+                    "無法取得目前登入會員"
+                );
             }
 
-            // 🟢 Google 完成後回到同一個 callback
+            // 建立一個短效的一次性票證
+            var ticket = Guid.NewGuid().ToString("N");
+
+            // 暫時存進 Cache
+            _cache.Set(
+                $"google-bind:{ticket}",
+                userId,
+                TimeSpan.FromMinutes(5)
+            );
+
+            // 回傳給 Vue
+            var bindUrl = Url.Action(
+                nameof(GoogleBind),
+                "GoogleOAuth",
+                new { ticket },
+                Request.Scheme
+            );
+
+            return Ok(new
+            {
+                url = bindUrl
+            });
+        }
+
+        // 🟡真正開始 Google OAuth
+        // GET: api/User/google/bind?ticket=xxx
+        [HttpGet("bind")]
+        [AllowAnonymous]
+        public IActionResult GoogleBind(
+            string ticket
+        )
+        {
+
+            // 使用一次性 ticket 找回剛才的 UserId
+            if (!_cache.TryGetValue(
+                $"google-bind:{ticket}",
+                out string? userId
+            ))
+            {
+                return Unauthorized(
+                    "Google 綁定請求已失效"
+                );
+            }
+
+
+            // ticket 用過立刻刪除
+            _cache.Remove(
+                $"google-bind:{ticket}"
+            );
+
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Unauthorized(
+                    "無法取得登入會員"
+                );
+            }
+
             var redirectUrl = Url.Action(
                 nameof(GoogleLoginCallback),
                 "GoogleOAuth"
             );
 
-            var properties = new AuthenticationProperties
-            {
-                RedirectUri = redirectUrl
-            };
+            var properties =
+                new AuthenticationProperties
+                {
+                    RedirectUri = redirectUrl
+                };
 
-            // 🟢 記錄這次 OAuth 的用途
+            // 告訴 callback：
+            // 這次不是登入，是綁定
             properties.Items["flow"] = "bind";
 
-            // 🟢 記錄「發起綁定的 CLOthings UserId」
+            // 保存 CLOthings UserId
             properties.Items["userId"] = userId;
 
             return Challenge(
@@ -278,12 +408,12 @@ namespace CLOthings_API.Controllers
         }
 
         // 🟢解除 Google 綁定
-        // DELETE: api/User/google
-        [HttpDelete]
+        // DELETE: api/User/google/unbind
+        [HttpDelete("unbind")]
         [Authorize]
-        public async Task<IActionResult> UnbindGoogle()
+        public async Task<IActionResult> GoogleUnbind()
         {
-            // 🟢【新增】從 JWT 取得目前登入會員 UserId
+            // 🟢從 JWT 取得目前登入會員 UserId
             var userId = User.FindFirstValue(
                 ClaimTypes.NameIdentifier
             );
@@ -293,7 +423,7 @@ namespace CLOthings_API.Controllers
                 return Unauthorized("無法取得目前登入會員");
             }
 
-            // 🟢【新增】尋找這個會員的 Google 綁定
+            // 🟢尋找這個會員的 Google 綁定
             var googleOAuth = await _context.UserOAuth
                 .FirstOrDefaultAsync(o =>
                     o.UserId == parsedUserId &&

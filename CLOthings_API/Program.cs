@@ -1,13 +1,11 @@
 using CLOthings_API.Hubs;
-using CLOthings_API.Models;
 using CLOthings_API.Middleware;
+using CLOthings_API.Models;
+using CLOthings_API.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.AspNetCore.Authentication.Google;
-using Microsoft.AspNetCore.Authentication.Cookies;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -16,10 +14,17 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 
+// Google OAuth 綁定流程的一次性短效票證
+builder.Services.AddMemoryCache();
+
 // AddSignalR()：註冊聊天室要用的 WebSocket 即時通訊服務（ChatHub.cs 靠這個才能運作）。
 builder.Services.AddSignalR();
 
+// ASP.NET Core Identity 的密碼雜湊服務（PasswordHasher<T>）
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
+
+// 🟢 Token Service
+builder.Services.AddScoped<AuthTokenService>();
 
 // 呼叫 LINE Pay API 要用（GroupPaymentController 的 LINE Pay 那幾支端點）
 builder.Services.AddHttpClient();
