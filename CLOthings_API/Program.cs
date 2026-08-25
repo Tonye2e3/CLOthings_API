@@ -2,12 +2,12 @@ using CLOthings_API.Hubs;
 using CLOthings_API.Middleware;
 using CLOthings_API.Models;
 using CLOthings_API.Services;
+using CLOthings_API.Services.Users;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
-using CLOthings_API.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -34,6 +34,9 @@ builder.Services.AddHttpClient();
 builder.Services.AddOpenApi();
 
 builder.Services.AddScoped<EmailService>();
+
+// 忘記密碼
+builder.Services.AddScoped<UserEmailService>();
 
 builder.Services.AddDbContext<CLOthingsContext>(options =>
 {

@@ -7,7 +7,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace CLOthings_API.Services
+namespace CLOthings_API.Services.Users
 {
     public class AuthTokenService
     {
