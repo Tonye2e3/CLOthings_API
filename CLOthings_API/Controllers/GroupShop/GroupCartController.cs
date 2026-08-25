@@ -3,6 +3,7 @@ using CLOthings_API.DTOs.GroupShop;
 using CLOthings_API.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 [Route("api/GroupCart")]
@@ -67,6 +68,7 @@ public class GroupCartController : ControllerBase
     // POST: api/GroupCart
     // 加入購物車：同商品同規格已經在購物車裡的話，數量累加；沒有的話新增一筆
     [HttpPost]
+    [EnableRateLimiting("group")] // 防止有人寫程式狂刷加入購物車
     public async Task<ActionResult<GroupCartItemDTO>> AddToCart(AddGroupCartDTO dto)
     {
         var userId = GetUserId();

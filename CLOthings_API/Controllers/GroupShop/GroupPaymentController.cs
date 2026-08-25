@@ -7,6 +7,7 @@ using CLOthings_API.DTOs.GroupShop;
 using CLOthings_API.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 // 這支是「假的第三方金流商」：模擬使用者在銀行/金流頁面付款的過程。
@@ -58,6 +59,7 @@ public class GroupPaymentController : ControllerBase
     // POST: api/GroupPayment/create
     // 結帳頁按下「前往付款」時呼叫這支：不會直接建立訂單，只是先把收件資訊記下來，換一個 paymentId
     [HttpPost("create")]
+    [EnableRateLimiting("group")] // 防止有人狂建立待付款單塞爆記憶體
     public async Task<ActionResult<CreatePaymentResultDTO>> CreatePayment(GroupCheckoutDTO dto)
     {
         var userId = GetUserId();
@@ -177,6 +179,7 @@ public class GroupPaymentController : ControllerBase
     // 先跟 CreatePayment 一樣把收件資訊記下來、換一個 paymentId，
     // 再呼叫 LINE Pay 的 Request API 換一個 LINE Pay 的付款頁網址，回傳給前端整頁導過去
     [HttpPost("linepay/request")]
+    [EnableRateLimiting("group")] // 防止有人狂發 LINE Pay 請求，浪費第三方 API 額度
     public async Task<ActionResult<LinePayRequestResultDTO>> RequestLinePay(GroupCheckoutDTO dto)
     {
         var userId = GetUserId();

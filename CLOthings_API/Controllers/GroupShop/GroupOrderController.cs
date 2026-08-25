@@ -3,6 +3,7 @@ using CLOthings_API.DTOs.GroupShop;
 using CLOthings_API.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 [Route("api/GroupOrder")]
@@ -70,6 +71,7 @@ public class GroupOrderController : ControllerBase
     // 把使用者購物車（GroupCart）裡的商品結成一筆訂單，成功後會清空購物車
     [HttpPost("checkout")]
     [Authorize(Roles = "User,SuperAdmin")]
+    [EnableRateLimiting("group")] // 每個來源 10 秒內最多 10 次結帳請求，防止被程式狂刷
     public async Task<ActionResult<GroupOrderDetailFullDTO>> Checkout(GroupCheckoutDTO dto)
     {
         var userId = GetUserId();
