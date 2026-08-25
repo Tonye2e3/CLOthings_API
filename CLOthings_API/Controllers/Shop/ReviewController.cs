@@ -2,6 +2,8 @@
 using CLOthings_API.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 
 namespace CLOthings_API.Controllers.Shop
 {
@@ -37,5 +39,57 @@ namespace CLOthings_API.Controllers.Shop
 
             return Ok(reviews);
         }
+
+        // POST api/review —— 發表評價
+        [HttpPost]
+        [Authorize]
+        public async Task<IActionResult> CreateReview(CreateReviewDto dto)
+        {
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
+
+            // 驗證1：這筆訂單明細，是這個使用者買的、而且訂單已完成
+            var orderDetail = await _context.OrderDetail
+                .Include(d => d.Order)
+                .FirstOrDefaultAsync(d => d.OrderDetailId == dto.OrderDetailId);
+
+            if (orderDetail == null || orderDetail.Order.UserId != userId)
+            {
+                return BadRequest(new { message = "找不到這筆訂單明細，或不是你的訂單" });
+            }
+
+            if (orderDetail.Order.Status != "已完成")
+            {
+                return BadRequest(new { message = "訂單完成後才能評價" });
+            }
+
+            // 驗證2：這筆明細評過了嗎？
+            var exists = await _context.Review.AnyAsync(r => r.OrderDetailId == dto.OrderDetailId);
+            if (exists)
+            {
+                return BadRequest(new { message = "這筆商品已經評價過了" });
+            }
+
+            // 驗證3：評分範圍
+            if (dto.Rating < 1 || dto.Rating > 5)
+            {
+                return BadRequest(new { message = "評分必須是 1 到 5" });
+            }
+
+            var review = new Review
+            {
+                UserId = userId,
+                OrderDetailId = dto.OrderDetailId,
+                Rating = dto.Rating,
+                ReviewComment = dto.ReviewComment,
+                ReviewDatetime = DateTimeOffset.UtcNow,
+            };
+            _context.Review.Add(review);
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "評價成功" });
+        }
+
+
+
     }
 }
