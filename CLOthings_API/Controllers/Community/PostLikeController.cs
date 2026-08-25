@@ -40,6 +40,25 @@ public class PostLikeController : ControllerBase
         return like;
     }
 
+    // GET: api/PostLike/user/3
+    // 查詢「這個使用者總共讚過哪些貼文」，CommunityView.vue 一次要顯示一整面的貼文卡片，
+    // 不會一篇一篇單獨去問（那樣要打幾十次 API），改成一次把這個使用者按過的所有讚都抓回來，
+    // 前端自己在畫面上比對每張卡片是不是在這份清單裡。
+    [HttpGet("user/{userid}")]
+    public async Task<List<LikeDTO>> GetPostLikesByUser(int userid)
+    {
+        return await _context.PostLike
+            .Where(l => l.UserId == userid)
+            .Select(l => new LikeDTO
+            {
+                PostLikesId = l.PostLikesId,
+                CommunityPostId = l.CommunityPostId,
+                UserId = l.UserId,
+                LikeDate = l.LikeDate
+            })
+            .ToListAsync();
+    }
+
     // POST: api/PostLike
     // 按讚：新增一筆 Post_Like 紀錄。加 [Authorize]：按讚一定要登入。
     [HttpPost]
