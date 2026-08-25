@@ -58,7 +58,11 @@ public class PostReportController : ControllerBase
     // 後台用的：列出「每篇被檢舉過的貼文」跟各自的檢舉次數，依次數由多到少排序。
     // AdminCommunityPostListView.vue 可以用這支在列表上額外顯示一欄「檢舉次數」，
     // 方便管理員優先處理檢舉數比較多的貼文。
+    //
+    // 資安修正：原本這支沒加任何 [Authorize]，任何人（不用登入）都能看到「哪些貼文
+    // 被檢舉過幾次」——這是後台管理用的資訊，補上限管理員才能查詢。
     [HttpGet("summary")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IEnumerable<PostReportSummaryDTO>> GetReportSummary()
     {
         return await _context.PostReport
@@ -75,7 +79,12 @@ public class PostReportController : ControllerBase
     // GET: api/PostReport/post/5
     // 查某一篇貼文完整的檢舉紀錄（誰檢舉的、原因是什麼），
     // AdminCommunityPostDetailView.vue 點進單篇貼文的詳情頁時可以用這支顯示明細。
+    //
+    // 資安修正：原本這支也沒加 [Authorize]——比 summary 那支問題更大，這支會直接洩漏
+    // 「是誰檢舉的」（ReporterId）跟檢舉原因，任何人都查得到，等於檢舉者的身分完全不保密。
+    // 補上限管理員才能查詢，一般使用者、訪客都不該看到這份明細。
     [HttpGet("post/{communitypostid}")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IEnumerable<PostReportDTO>> GetReportsByPost(int communitypostid)
     {
         return await _context.PostReport
