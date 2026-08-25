@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CLOthings_API.Controllers.Shop
 {
-    //<h1>2026/08/25 13:41</h1>
+    //<h1>2026/08/25 15:42</h1>
     [Route("api/[controller]")]   //決定API網址，[Ctr]自動代換成控制器名稱
     [ApiController]               //告訴ASP.NET這是一個ASP Ctr
     public class ProductController : ControllerBase //繼承ControllerBase，會有OK()NotFound()可用
