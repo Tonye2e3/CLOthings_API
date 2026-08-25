@@ -71,6 +71,8 @@ public partial class CLOthingsContext : DbContext
 
     public virtual DbSet<PostShortUrl> PostShortUrl { get; set; }
 
+    public virtual DbSet<PostReport> PostReport { get; set; }
+
     public virtual DbSet<PostTaggedProduct> PostTaggedProduct { get; set; }
 
     public virtual DbSet<Product> Product { get; set; }
@@ -633,6 +635,26 @@ public partial class CLOthingsContext : DbContext
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_PostShortUrl_CommunityPost");
         });
+
+        modelBuilder.Entity<PostReport>(entity =>
+        {
+            entity.HasKey(e => e.PostReportId);
+
+            entity.HasIndex(e => new { e.CommunityPostId, e.ReporterId }, "UQ_PostReport_Post_Reporter").IsUnique();
+
+            entity.Property(e => e.Reason).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.CreatedDate).HasDefaultValueSql("(sysdatetimeoffset())");
+
+            entity.HasOne(d => d.CommunityPost).WithMany()
+                .HasForeignKey(d => d.CommunityPostId)
+                .HasConstraintName("FK_PostReport_CommunityPost");
+
+            entity.HasOne(d => d.Reporter).WithMany()
+                .HasForeignKey(d => d.ReporterId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_PostReport_Reporter");
+        });
+
 
         modelBuilder.Entity<PostTaggedProduct>(entity =>
         {
