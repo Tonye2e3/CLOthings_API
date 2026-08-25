@@ -42,9 +42,10 @@ namespace CLOthings_API.Controllers
         {
             // 1. 根據帳號找使用者
             var user = await _context.User
-                .FirstOrDefaultAsync(u => u.Account == dto.Account);
+                .FirstOrDefaultAsync(u => u.Account == dto.Account || u.Email == dto.Account);
 
-            if (user == null)
+            //純第三方登入會員可能沒有 Password
+            if (user == null || string.IsNullOrEmpty(user.Password))
             {
                 return Unauthorized("帳號或密碼錯誤");
             }
@@ -308,6 +309,164 @@ namespace CLOthings_API.Controllers
 
             // 登出成功
             return NoContent();
+        }
+
+        // 忘記密碼重設
+        // ======================================================        
+        // 產生密碼重設 Token
+        private string GeneratePasswordResetToken()
+        {
+            // 產生 64 bytes 密碼學安全亂數
+            var randomBytes = RandomNumberGenerator.GetBytes(64);
+
+            // 轉成 Base64 字串
+            return Convert.ToBase64String(randomBytes);
+        }
+
+        // 將密碼重設 Token 做 SHA256 Hash
+        private string HashPasswordResetToken(string token)
+        {
+            var tokenBytes = Encoding.UTF8.GetBytes(token);
+
+            var hashBytes = SHA256.HashData(tokenBytes);
+
+            return Convert.ToBase64String(hashBytes);
+        }
+
+        // POST: api/User/forgot-password
+        [HttpPost("forgot-password")]
+        [AllowAnonymous]
+        public async Task<IActionResult> ForgotPassword(ForgotPasswordDTO dto)
+        {
+            // 1. 用 Email 尋找會員
+            var user = await _context.User
+                .FirstOrDefaultAsync(u => u.Email == dto.Email);
+
+            // 2. Email 不存在也回相同結果
+            if (user == null)
+            {
+                return Ok(new
+                {
+                    message = "如果此 Email 已註冊，我們將寄送密碼重設信件"
+                });
+            }
+
+            // 3. 產生原始 Reset Token
+            var resetToken = GeneratePasswordResetToken();
+
+            // 4. Token 做 SHA256 Hash
+            var resetTokenHash =
+                HashPasswordResetToken(resetToken);
+
+            // 5. 建立資料庫紀錄
+            var passwordResetToken =
+                new UserPasswordResetToken
+                {
+                    UserId = user.UserId,
+
+                    TokenHash = resetTokenHash,
+
+                    CreatedAt = DateTimeOffset.UtcNow,
+
+                    // 15 分鐘有效
+                    ExpiresAt =
+                        DateTimeOffset.UtcNow.AddMinutes(15),
+
+                    UsedAt = null
+                };
+
+            // 6. 寫入資料庫
+            _context.UserPasswordResetToken.Add(
+                passwordResetToken
+            );
+
+            await _context.SaveChangesAsync();
+
+            // ⚠️ 現在還沒做 Email
+            // 暫時把原始 Token 回傳，只供開發測試
+            return Ok(new
+            {
+                message =
+                    "如果此 Email 已註冊，我們會寄送密碼重設信件",
+
+                resetToken
+            });
+        }
+
+        // POST: api/User/reset-password
+        [HttpPost("reset-password")]
+        [AllowAnonymous]
+        public async Task<IActionResult> ResetPassword(
+            ResetPasswordDTO dto)
+        {
+            // 1. 將收到的原始 Token 做 Hash
+            var tokenHash =
+                HashPasswordResetToken(dto.Token);
+
+            // 2. 用 Hash 找資料庫中的 Reset Token
+            var storedToken =
+                await _context.UserPasswordResetToken
+                    .FirstOrDefaultAsync(t =>
+                        t.TokenHash == tokenHash);
+
+            // 3. Token 不存在
+            if (storedToken == null)
+            {
+                return BadRequest("密碼重設連結無效");
+            }
+
+            // 4. Token 已經使用過
+            if (storedToken.UsedAt != null)
+            {
+                return BadRequest("密碼重設連結已使用");
+            }
+
+            // 5. Token 已過期
+            if (storedToken.ExpiresAt <= DateTimeOffset.UtcNow)
+            {
+                return BadRequest("密碼重設連結已過期");
+            }
+
+            // 6. 找 Token 所屬會員
+            var user = await _context.User
+                .FirstOrDefaultAsync(
+                    u => u.UserId == storedToken.UserId);
+
+            if (user == null)
+            {
+                return BadRequest("使用者不存在");
+            }
+
+            // 7. 新密碼 Hash
+            user.Password =
+                _passwordHasher.HashPassword(
+                    user,
+                    dto.NewPassword);
+
+            user.UpdatedAt = DateTimeOffset.UtcNow;
+
+            // 8. 將 Reset Token 標記為已使用
+            storedToken.UsedAt = DateTimeOffset.UtcNow;
+
+            // 9. 撤銷這個會員目前所有有效的 Refresh Token
+            var activeRefreshTokens = await _context.UserRefreshToken
+                .Where(t =>
+                    t.UserId == user.UserId &&
+                    t.RevokedAt == null)
+                .ToListAsync();
+
+            foreach (var refreshToken in activeRefreshTokens)
+            {
+                refreshToken.RevokedAt = DateTimeOffset.UtcNow;
+            }
+
+            // 10. 儲存所有變更
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                message = "密碼重設成功"
+            });
         }
     }
 }

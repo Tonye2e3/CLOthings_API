@@ -1,4 +1,6 @@
-﻿using CLOthings_API.Models;
+﻿using CLOthings.Enums;
+using CLOthings_API.DTO.User;
+using CLOthings_API.Models;
 using CLOthings_API.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -18,13 +20,15 @@ namespace CLOthings_API.Controllers
         private readonly CLOthingsContext _context;
         private readonly IMemoryCache _cache;
         private readonly AuthTokenService _authTokenService;
+        private readonly IConfiguration _configuration;
 
         // 🟢【新增】
-        public GoogleOAuthController(CLOthingsContext context, IMemoryCache cache, AuthTokenService authTokenService)
+        public GoogleOAuthController(CLOthingsContext context, IMemoryCache cache, AuthTokenService authTokenService, IConfiguration configuration)
         {
             _context = context;
             _cache = cache;
             _authTokenService = authTokenService;
+            _configuration = configuration;
         }
 
         // GET: api/User/google/login
@@ -46,6 +50,9 @@ namespace CLOthings_API.Controllers
                 };
 
             properties.Items["flow"] = "login";
+
+            // 每次 Google 登入都顯示帳號選擇畫面
+            properties.Parameters["prompt"] = "select_account";
 
             // 指定使用 Program.cs 裡面的 "Google"
             return Challenge(
@@ -101,9 +108,7 @@ namespace CLOthings_API.Controllers
                     c.Type == ClaimTypes.Name)
                 ?.Value;
 
-            // =============================================
             // 🟢 Google 登入流程
-            // =============================================
             if (flow == "login")
             {
                 // Google 沒有提供唯一 ID，不能繼續
@@ -123,11 +128,84 @@ namespace CLOthings_API.Controllers
                 // 還沒有任何 CLOthings 帳號綁定這個 Google
                 if (googleOAuth == null)
                 {
-                    return NotFound(new
+                    // ① Google 必須提供 Email
+                    if (string.IsNullOrWhiteSpace(email))
                     {
-                        message = "此 Google 帳號尚未綁定 CLOthings 帳號",
-                        email
-                    });
+                        return BadRequest(
+                            "Google 沒有提供 Email，無法建立會員"
+                        );
+                    }
+
+                    // =============================================
+                    // ② 檢查 Email 是否已存在 CLOthings
+                    // =============================================
+                    var emailAlreadyExists = await _context.User
+                        .AnyAsync(u => u.Email == email);
+
+                    if (emailAlreadyExists)
+                    {
+                        return Conflict(new
+                        {
+                            message =
+                                "此 Email 已有 CLOthings 帳號，請先使用原帳號登入後綁定 Google"
+                        });
+                    }
+
+                    // ③ 建立新的 CLOthings User
+                    var newUser = new User
+                    {
+                        Username = name ?? "Google User",
+
+                        // 先暫時產生唯一 Account
+                        Account = $"google_{Guid.NewGuid():N}",
+
+                        Email = email,
+
+                        UserType = (int)UserTypeEnum.User,
+                        Status = (int)StatusEnum.Active,
+
+                        CreatedAt = DateTimeOffset.UtcNow,
+                        UpdatedAt = DateTimeOffset.UtcNow
+                    };
+
+                    _context.User.Add(newUser);
+
+                    await _context.SaveChangesAsync();
+
+                    // ④ 建立 UserOAuth
+                    var newOAuth = new UserOAuth
+                    {
+                        UserId = newUser.UserId,
+
+                        Provider = "Google",
+                        ProviderUserId = providerUserId,
+
+                        Email = email,
+
+                        CreatedAt = DateTimeOffset.UtcNow,
+                        UpdatedAt = DateTimeOffset.UtcNow,
+
+                        AccessToken = null,
+                        RefreshToken = null,
+                        ExpiresAt = null
+                    };
+
+                    _context.UserOAuth.Add(newOAuth);
+
+                    // ⑤ 建立 UserProfile
+                    var newProfile = new UserProfile
+                    {
+                        UserId = newUser.UserId
+                    };
+
+                    _context.UserProfile.Add(newProfile);
+
+                    await _context.SaveChangesAsync();
+
+                    // ⑥ 讓後面的登入流程繼續使用 newUser
+                    // =============================================
+                    googleOAuth = newOAuth;
+                    googleOAuth.User = newUser;
                 }
 
                 // 找到對應會員
@@ -156,19 +234,25 @@ namespace CLOthings_API.Controllers
                     }
                 );
 
-                // 🟢 回傳 Access Token 與會員資料
-                return Ok(new
-                {
-                    token = tokenResult.AccessToken,
+                // 🟢建立一次性 Google Login Ticket
 
-                    userId = tokenResult.UserId,
+                // 產生隨機 Ticket
+                var ticket = Guid.NewGuid().ToString("N");
 
-                    name = tokenResult.Name,
+                // 將登入結果暫時存進 MemoryCache
+                _cache.Set(
+                    $"google-login:{ticket}",
+                    tokenResult,
+                    TimeSpan.FromMinutes(1)
+                );
 
-                    account = tokenResult.Account,
+                // Redirect 回 Vue
+                var frontendUrl = _configuration["Frontend:BaseUrl"];
 
-                    role = tokenResult.Role
-                });
+                return Redirect(
+                    $"{frontendUrl}/oauth/google?ticket={ticket}"
+                );
+
             }
 
             // =====================================================
@@ -201,10 +285,10 @@ namespace CLOthings_API.Controllers
                 // 🟢【新增】檢查這個 Google 帳號有沒有被別人綁過
                 // =================================================
                 var googleAlreadyBound = await _context.UserOAuth
-                    .AnyAsync(o =>
-                        o.Provider == "Google" &&
-                        o.ProviderUserId == providerUserId
-                    );
+                .AnyAsync(o =>
+                    o.Provider == "Google" &&
+                    o.ProviderUserId == providerUserId
+                );
 
                 if (googleAlreadyBound)
                 {
@@ -249,7 +333,9 @@ namespace CLOthings_API.Controllers
                 await _context.SaveChangesAsync();
 
                 // 🟢【新增】綁定成功
-                return Redirect("http://localhost:5173/user");
+                var frontendUrl = _configuration["Frontend:BaseUrl"];
+
+                return Redirect($"{frontendUrl}/user");
             }
 
             // 暫時回傳資料測試
@@ -264,6 +350,53 @@ namespace CLOthings_API.Controllers
                 providerUserId,
                 email,
                 name
+            });
+        }
+
+        // 用一次性 Ticket 換取 Google 登入資料
+        // POST: api/User/google/exchange
+        [HttpPost("exchange")]
+        [AllowAnonymous]
+        public IActionResult ExchangeGoogleLogin(
+            [FromBody] GoogleLoginExchangeRequest request)
+        {
+            // 1. 檢查 Ticket 是否存在
+            if (string.IsNullOrWhiteSpace(request.Ticket))
+            {
+                return BadRequest("缺少 Google Login Ticket");
+            }
+
+            // 2. 從 MemoryCache 找登入資料
+            if (!_cache.TryGetValue(
+                $"google-login:{request.Ticket}",
+                out AuthTokenResult? tokenResult))
+            {
+                return Unauthorized(
+                    "Google Login Ticket 無效或已過期"
+                );
+            }
+
+            // 3. 保險檢查
+            if (tokenResult == null)
+            {
+                return Unauthorized(
+                    "Google Login Ticket 無效"
+                );
+            }
+
+            // 4. 🟢 Ticket 使用一次後立刻刪除
+            _cache.Remove(
+                $"google-login:{request.Ticket}"
+            );
+
+            // 5. 回傳給 Vue，格式跟一般登入一樣
+            return Ok(new
+            {
+                token = tokenResult.AccessToken,
+                userId = tokenResult.UserId,
+                name = tokenResult.Name,
+                account = tokenResult.Account,
+                role = tokenResult.Role
             });
         }
 
@@ -356,9 +489,11 @@ namespace CLOthings_API.Controllers
             // 告訴 callback：
             // 這次不是登入，是綁定
             properties.Items["flow"] = "bind";
-
             // 保存 CLOthings UserId
             properties.Items["userId"] = userId;
+
+            // 🟢【新增】綁定時也強制選擇 Google 帳號
+            properties.Parameters["prompt"] = "select_account";
 
             return Challenge(
                 properties,

@@ -101,6 +101,8 @@ public partial class CLOthingsContext : DbContext
 
     public virtual DbSet<UserOAuth> UserOAuth { get; set; }
 
+    public virtual DbSet<UserPasswordResetToken> UserPasswordResetToken { get; set; }
+
     public virtual DbSet<UserProfile> UserProfile { get; set; }
 
     public virtual DbSet<UserRefreshToken> UserRefreshToken { get; set; }
@@ -807,11 +809,9 @@ public partial class CLOthingsContext : DbContext
                 .HasMaxLength(255)
                 .IsUnicode(false);
             entity.Property(e => e.Password)
-                .IsRequired()
                 .HasMaxLength(1000)
                 .IsUnicode(false);
             entity.Property(e => e.Phone)
-                .IsRequired()
                 .HasMaxLength(50)
                 .IsUnicode(false);
             entity.Property(e => e.TwoFactorEnabled).HasDefaultValue(false, "DF_User_TwoFactorEnabled");
@@ -883,6 +883,22 @@ public partial class CLOthingsContext : DbContext
                 .HasForeignKey(d => d.UserId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_UserOAuth_User");
+        });
+
+        modelBuilder.Entity<UserPasswordResetToken>(entity =>
+        {
+            entity.HasKey(e => e.UserPasswordResetTokenId).HasName("PK__UserPass__2B5909C19F933AF3");
+
+            entity.HasIndex(e => e.TokenHash, "IX_UserPasswordResetToken_TokenHash").IsUnique();
+
+            entity.Property(e => e.TokenHash)
+                .IsRequired()
+                .HasMaxLength(100)
+                .IsUnicode(false);
+
+            entity.HasOne(d => d.User).WithMany(p => p.UserPasswordResetToken)
+                .HasForeignKey(d => d.UserId)
+                .HasConstraintName("FK_UserPasswordResetToken_User");
         });
 
         modelBuilder.Entity<UserProfile>(entity =>
