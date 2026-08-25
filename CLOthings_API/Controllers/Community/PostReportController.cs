@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using System.Security.Claims;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
 using CLOthings_API.Models;
@@ -16,15 +17,25 @@ public class PostReportController : ControllerBase
     // POST: api/PostReport
     // 檢舉一篇貼文。加 [Authorize]：檢舉一定要登入（不然無法判斷是誰檢舉的，
     // 也沒辦法擋掉「同一人重複檢舉同一篇」）。
+    //
+    // 資安修正：原本直接相信前端 request body 裡的 reportDTO.ReporterId，代表誰是「檢舉的人」——
+    // 改成一律從登入用的 JWT Token 解出真正的身分，不管前端傳什麼都直接蓋掉，
+    // 不然有心人士可以冒充別人的 userId 亂檢舉，甚至用來鎖住別人的「一人一次」檢舉額度。
     [HttpPost]
     [Authorize]
     public async Task<ResultDTO> PostPostReport(PostReportDTO reportDTO)
     {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId == null)
+        {
+            return new ResultDTO { OK = false, Code = 401 };
+        }
+
         // 先看這個人是不是已經檢舉過這篇貼文了——UQ_PostReport_Post_Reporter 這個唯一約束
         // 其實資料庫層也會擋掉，但先在這裡查一次，才能回傳一個清楚的訊息給前端顯示，
         // 而不是讓前端收到一個看不懂的資料庫錯誤。
         var existing = await _context.PostReport
-            .FirstOrDefaultAsync(r => r.CommunityPostId == reportDTO.CommunityPostId && r.ReporterId == reportDTO.ReporterId);
+            .FirstOrDefaultAsync(r => r.CommunityPostId == reportDTO.CommunityPostId && r.ReporterId == currentUserId.Value);
         if (existing != null)
         {
             return new ResultDTO { OK = false, Code = 409 }; // 409：已經檢舉過了
@@ -33,7 +44,7 @@ public class PostReportController : ControllerBase
         var report = new PostReport
         {
             CommunityPostId = reportDTO.CommunityPostId,
-            ReporterId = reportDTO.ReporterId,
+            ReporterId = currentUserId.Value,
             Reason = reportDTO.Reason,
             CreatedDate = DateTimeOffset.Now
         };
@@ -79,5 +90,13 @@ public class PostReportController : ControllerBase
                 CreatedDate = r.CreatedDate
             })
             .ToListAsync();
+    }
+
+    // GetCurrentUserId：跟 ChatController.cs 是同一套寫法，從登入用的 JWT Token 裡取出 userId，
+    // 不相信前端自己送來的任何身分欄位。
+    private int? GetCurrentUserId()
+    {
+        var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        return int.TryParse(userIdValue, out var userId) ? userId : null;
     }
 }

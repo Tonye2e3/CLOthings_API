@@ -57,6 +57,8 @@ public partial class CLOthingsContext : DbContext
 
     public virtual DbSet<Invoice> Invoice { get; set; }
 
+    public virtual DbSet<Notification> Notification { get; set; }
+
     public virtual DbSet<Order> Order { get; set; }
 
     public virtual DbSet<OrderDetail> OrderDetail { get; set; }
@@ -489,6 +491,31 @@ public partial class CLOthingsContext : DbContext
             entity.HasOne(d => d.Order).WithMany(p => p.Invoice)
                 .HasForeignKey(d => d.OrderId)
                 .HasConstraintName("FK_Invoice_Order");
+        });
+
+        modelBuilder.Entity<Notification>(entity =>
+        {
+            entity.HasKey(e => e.NotificationId);
+
+            entity.Property(e => e.Type).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.CreatedDate).HasDefaultValueSql("(sysdatetimeoffset())");
+            entity.Property(e => e.IsRead).HasDefaultValue(false);
+
+            entity.HasOne(d => d.User).WithMany()
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_Notification_User");
+
+            entity.HasOne(d => d.FromUser).WithMany()
+                .HasForeignKey(d => d.FromUserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_Notification_FromUser");
+
+            entity.HasOne(d => d.CommunityPost).WithMany()
+                .HasForeignKey(d => d.CommunityPostId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_Notification_CommunityPost");
         });
 
         modelBuilder.Entity<Order>(entity =>

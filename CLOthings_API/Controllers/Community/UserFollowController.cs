@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
 using CLOthings_API.Models;
+using System.Security.Claims;
 
 [Route("api/[controller]")]
 [ApiController]
@@ -145,19 +146,44 @@ public class UserFollowController : ControllerBase
 
     // POST: api/UserFollow
     // 追蹤：新增一筆 User_Follow 紀錄。加 [Authorize]：追蹤一定要登入。
+    //
+    // 資安修正：原本直接相信前端 request body 裡的 followDTO.FollowerId，代表誰是「追蹤的人」——
+    // 改成一律從登入用的 JWT Token 解出真正的身分，不管前端傳什麼都直接蓋掉。
     [HttpPost]
     [Authorize]
     public async Task<ResultDTO> PostUserFollow(FollowDTO followDTO)
     {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId == null)
+        {
+            return new ResultDTO { OK = false, Code = 401 };
+        }
+
         UserFollow follow = new UserFollow
         {
             UserFollowId = 0,
-            FollowerId = followDTO.FollowerId,
+            FollowerId = currentUserId.Value,
             FollowingId = followDTO.FollowingId,
             FollowDate = DateTimeOffset.Now
         };
         _context.UserFollow.Add(follow);
         await _context.SaveChangesAsync();
+
+        // 追蹤成功後，順便通知被追蹤的那個人——正常情況下不會有人追蹤自己，
+        // 但還是保守加個判斷，避免萬一發生時通知自己。
+        if (followDTO.FollowingId != currentUserId.Value)
+        {
+            _context.Notification.Add(new Notification
+            {
+                UserId = followDTO.FollowingId,
+                FromUserId = currentUserId.Value,
+                Type = "follow",
+                CommunityPostId = null,
+                CreatedDate = DateTimeOffset.Now,
+                IsRead = false
+            });
+            await _context.SaveChangesAsync();
+        }
 
         return new ResultDTO { OK = true, Code = 204 };
     }
@@ -165,14 +191,27 @@ public class UserFollowController : ControllerBase
     // DELETE: api/UserFollow/5
     // 取消追蹤：刪除那筆 User_Follow 紀錄，5 要帶 userFollowId
     // （從 GetUserFollow 查回來的那個 id）。加 [Authorize]：取消追蹤一定要登入。
+    //
+    // 資安修正：原本只檢查「這筆紀錄存不存在」，沒檢查「這筆紀錄是不是登入者自己追蹤的」——
+    // 加上比對 follow.FollowerId 是不是等於目前登入者的 userId。
     [HttpDelete("{userfollowid}")]
     [Authorize]
     public async Task<ResultDTO> DeleteUserFollow(int? userfollowid)
     {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId == null)
+        {
+            return new ResultDTO { OK = false, Code = 401 };
+        }
+
         var follow = await _context.UserFollow.FindAsync(userfollowid);
         if (follow == null)
         {
             return new ResultDTO { OK = false, Code = 404 };
+        }
+        if (follow.FollowerId != currentUserId.Value)
+        {
+            return new ResultDTO { OK = false, Code = 403 };
         }
         try
         {
@@ -184,5 +223,13 @@ public class UserFollowController : ControllerBase
             return new ResultDTO { OK = false, Code = 500 };
         }
         return new ResultDTO { OK = true, Code = 204 };
+    }
+
+    // GetCurrentUserId：跟 ChatController.cs 是同一套寫法，從登入用的 JWT Token 裡取出 userId，
+    // 不相信前端自己送來的任何身分欄位。
+    private int? GetCurrentUserId()
+    {
+        var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        return int.TryParse(userIdValue, out var userId) ? userId : null;
     }
 }
