@@ -6,10 +6,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
-using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Text;
 
 
 [Route("api/[controller]")]
@@ -18,13 +15,11 @@ using System.Text;
 public class UserController : ControllerBase
 {
     private readonly CLOthingsContext _context;
-    private readonly IConfiguration _configuration;
     private readonly IPasswordHasher<User> _passwordHasher;
 
-    public UserController(CLOthingsContext context, IConfiguration configuration, IPasswordHasher<User> passwordHasher)
+    public UserController(CLOthingsContext context, IPasswordHasher<User> passwordHasher)
     {
         _context = context;
-        _configuration = configuration;
         _passwordHasher = passwordHasher;
 
     }
@@ -110,6 +105,15 @@ public class UserController : ControllerBase
             return Conflict("帳號已存在");
         }
 
+        // 🟢檢查 Email 是否已存在
+        var emailExists = await _context.User
+            .AnyAsync(u => u.Email == dto.Email);
+
+        if (emailExists)
+        {
+            return Conflict("Email 已存在");
+        }
+
         // 建立新的 User
         var user = new User
         {
@@ -189,67 +193,6 @@ public class UserController : ControllerBase
         return _context.User.Any(e => e.UserId == userid);
     }
 
-    private string GenerateAccessToken(User user)
-    {
-        // 取得會員角色
-        var role = ((UserTypeEnum)user.UserType).ToString();
-
-        // JWT 裡要存放的會員資訊
-        var claims = new[]
-        {
-        new Claim(
-            ClaimTypes.NameIdentifier,
-            user.UserId.ToString()
-        ),
-
-        new Claim(
-            ClaimTypes.Name,
-            user.Username
-        ),
-
-        new Claim(
-            "account",
-            user.Account
-        ),
-
-        new Claim(
-            ClaimTypes.Role,
-            role
-        )
-    };
-
-        // 取得 appsettings.json 裡面的 JWT Key
-        var key = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(
-                _configuration["Jwt:Key"]!
-            )
-        );
-
-        // 使用 HMAC SHA256 簽章
-        var credentials = new SigningCredentials(
-            key,
-            SecurityAlgorithms.HmacSha256
-        );
-
-        // 建立 JWT
-        var token = new JwtSecurityToken(
-            issuer: _configuration["Jwt:Issuer"],
-            audience: _configuration["Jwt:Audience"],
-            claims: claims,
-
-            // 先維持你目前的 2 小時
-            expires: DateTime.UtcNow.AddHours(2),
-
-            signingCredentials: credentials
-        );
-
-        // JWT 物件轉成字串
-        return new JwtSecurityTokenHandler()
-            .WriteToken(token);
-    }
-
-
-
     // GET: api/User/me
     [HttpGet("me")]
     public async Task<ActionResult> GetMe()
@@ -314,6 +257,8 @@ public class UserController : ControllerBase
         user.CountryCode = dto.CountryCode;
 
         // 4. 儲存到資料庫
+        user.UpdatedAt = DateTimeOffset.UtcNow;
+
         await _context.SaveChangesAsync();
 
         return NoContent();
@@ -340,6 +285,13 @@ public class UserController : ControllerBase
             return NotFound();
         }
 
+        if (string.IsNullOrEmpty(user.Password))
+        {
+            return BadRequest(
+                "此帳號尚未設定密碼，請先設定密碼"
+            );
+        }
+
         // 3. 驗證目前密碼是否正確
         var passwordResult = _passwordHasher.VerifyHashedPassword(
             user,
@@ -358,12 +310,62 @@ public class UserController : ControllerBase
             dto.NewPassword
         );
 
-        // 5. 儲存到資料庫
+
+
+        // 5. 儲存到資料庫 順便變更更新時間     
+        user.UpdatedAt = DateTimeOffset.UtcNow;
+
         await _context.SaveChangesAsync();
 
         return NoContent();
     }
 
+    // POST: api/User/me/password
+    // 第三方登入會員首次設定密碼
+    [HttpPost("me/password")]
+    public async Task<IActionResult> SetPassword(SetPasswordDTO dto)
+    {
+        // 1. 從 JWT 取得目前登入者 UserId
+        var userIdValue = User.FindFirstValue(
+            ClaimTypes.NameIdentifier
+        );
+
+        if (!int.TryParse(userIdValue, out var userId))
+        {
+            return Unauthorized();
+        }
+
+        // 2. 找目前登入會員
+        var user = await _context.User
+            .FirstOrDefaultAsync(u => u.UserId == userId);
+
+        if (user == null)
+        {
+            return NotFound();
+        }
+
+
+        // 3. 如果已經有密碼，就不能使用「首次設定密碼」
+        if (!string.IsNullOrEmpty(user.Password))
+        {
+            return Conflict(
+                "此帳號已設定密碼，請使用修改密碼功能"
+            );
+        }
+
+        // 4. 將新密碼 Hash
+        user.Password = _passwordHasher.HashPassword(
+            user,
+            dto.NewPassword
+        );
+
+        user.UpdatedAt = DateTimeOffset.UtcNow;
+
+        // 5. 儲存
+        await _context.SaveChangesAsync();
+
+        return NoContent();
+    }
 
 }
 
