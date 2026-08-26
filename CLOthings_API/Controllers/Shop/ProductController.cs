@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CLOthings_API.Controllers.Shop
 {
-    //<h1>2026/08/21 16:43</h1>
+    //<h1>2026/08/25 15:42</h1>
     [Route("api/[controller]")]   //決定API網址，[Ctr]自動代換成控制器名稱
     [ApiController]               //告訴ASP.NET這是一個ASP Ctr
     public class ProductController : ControllerBase //繼承ControllerBase，會有OK()NotFound()可用
@@ -20,6 +20,7 @@ namespace CLOthings_API.Controllers.Shop
             _context = context;
         }
 
+        // 撈商品頁面=>對應ShopView.vue
         // GET api/product
         [HttpGet] //這個方法對應GET請求
         public async Task<IActionResult> GetProducts() { 
@@ -41,6 +42,7 @@ namespace CLOthings_API.Controllers.Shop
             return Ok(products);
         }
 
+        // 撈商品詳情頁面=>對應ProductView.vue
         // GET api/product/id
         [HttpGet("{id}")]
         public async Task<IActionResult> GetProduct(int id)
@@ -76,7 +78,33 @@ namespace CLOthings_API.Controllers.Shop
             return Ok(product);
         }
 
+        // 關鍵字搜尋
+        // GET api/product/search?keyword=xxx
+        [HttpGet("search")]
+        public async Task<IActionResult> Search(string keyword)
+        {
+            if (string.IsNullOrWhiteSpace(keyword))
+            {
+                return Ok(new List<ProductDto>());
+            }
 
+            var products = await _context.Product
+                .Where(p => p.ProductName.Contains(keyword))
+                .Include(p => p.ProductImg)
+                .Select(p => new ProductDto
+                {
+                    ProductId = p.ProductId,
+                    ProductName = p.ProductName,
+                    Price = p.Price,
+                    Description = p.Description,
+                    Status = p.Status,
+                    ProductImgFile = p.ProductImg.Select(img => img.ProductImgFile).FirstOrDefault(),
+                    ProductCategoryId = p.ProductCategoryId,
+                })
+                .ToListAsync();
+
+            return Ok(products);
+        }
 
 
     }

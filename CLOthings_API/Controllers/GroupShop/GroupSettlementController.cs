@@ -2,6 +2,7 @@
 using CLOthings_API.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -23,6 +24,7 @@ public class GroupSettlementController : ControllerBase
 
     // POST: api/GroupSettlement/run
     [HttpPost("run")]
+    [EnableRateLimiting("group")] // 雖然僅限管理員，仍加一層防呆避免誤觸發或程式重複呼叫
     public async Task<ActionResult<GroupSettlementResultDTO>> Run()
     {
         var result = new GroupSettlementResultDTO();

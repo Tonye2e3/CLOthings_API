@@ -2,12 +2,16 @@ using CLOthings_API.Hubs;
 using CLOthings_API.Middleware;
 using CLOthings_API.Models;
 using CLOthings_API.Services;
+using CLOthings_API.Services.Users;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using System.Security.Claims;
 using System.Text;
-using CLOthings_API.Services;
+
+using System.Threading.RateLimiting;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -34,6 +38,9 @@ builder.Services.AddHttpClient();
 builder.Services.AddOpenApi();
 
 builder.Services.AddScoped<EmailService>();
+
+// 忘記密碼
+builder.Services.AddScoped<UserEmailService>();
 
 builder.Services.AddDbContext<CLOthingsContext>(options =>
 {
@@ -130,6 +137,31 @@ builder.Services.AddCors(options =>
         });
 });
 
+// 流量限制：目前只套用在團購（Group）模組容易被灌爆的端點
+// 結帳／加購物車／建立付款／結算，其餘端點暫不設限
+// 用 AddPolicy 依「使用者身分」分桶，而不是全站共用一個額度：
+// 這樣「很多不同使用者同時搶購」不會互相卡到彼此的額度，
+// 只有「同一個人／同一個來源」短時間狂刷才會被擋下來
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddPolicy("group", httpContext =>
+    {
+        var key = httpContext.User.Identity?.IsAuthenticated == true
+            ? httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                ?? httpContext.User.Identity.Name
+                ?? "anonymous"
+            : httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,                    // 每個使用者 10 秒內最多 10 次請求
+            Window = TimeSpan.FromSeconds(10),
+            QueueLimit = 0                        // 超過就直接拒絕，不排隊等待
+        });
+    });
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+});
+
 
 
 var app = builder.Build();
@@ -161,6 +193,8 @@ app.UseStaticFiles();
 app.UseAuthentication();
 
 app.UseAuthorization();
+
+app.UseRateLimiter();
 
 app.MapControllers();
 
