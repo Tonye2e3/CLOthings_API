@@ -17,7 +17,7 @@ public partial class UserOAuth
 
     public string Email { get; set; }
 
-    public DateTimeOffset? CreateAt { get; set; }
+    public DateTimeOffset? CreatedAt { get; set; }
 
     public DateTimeOffset? UpdatedAt { get; set; }
 
@@ -26,4 +26,6 @@ public partial class UserOAuth
     public string RefreshToken { get; set; }
 
     public DateTimeOffset? ExpiresAt { get; set; }
+
+    public virtual User User { get; set; }
 }

@@ -1,6 +1,7 @@
 ﻿using CLOthings.Enums;
 using CLOthings_API.DTO.User;
 using CLOthings_API.Models;
+using CLOthings_API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -20,15 +21,18 @@ namespace CLOthings_API.Controllers
         private readonly CLOthingsContext _context;
         private readonly IConfiguration _configuration;
         private readonly IPasswordHasher<User> _passwordHasher;
+        private readonly AuthTokenService _authTokenService;
 
         public AuthController(
             CLOthingsContext context,
             IConfiguration configuration,
-            IPasswordHasher<User> passwordHasher)
+            IPasswordHasher<User> passwordHasher,
+            AuthTokenService authTokenService)
         {
             _context = context;
             _configuration = configuration;
             _passwordHasher = passwordHasher;
+            _authTokenService = authTokenService;
         }
 
         // POST: api/User/login
@@ -58,51 +62,38 @@ namespace CLOthings_API.Controllers
                 return Unauthorized("帳號或密碼錯誤");
             }
 
-            // 3. 產生 Access Token
-            var accessToken = GenerateAccessToken(user);
+            // 🟢 3. 建立登入 Token
+            var tokenResult =
+                await _authTokenService
+                    .CreateLoginTokenAsync(user);
 
-            // 4. 產生 Refresh Token
-            var refreshToken = GenerateRefreshToken();
-
-            // 5. Refresh Token 做 Hash
-            var refreshTokenHash = HashRefreshToken(refreshToken);
-
-            // 6. 建立 Refresh Token 資料
-            var userRefreshToken = new UserRefreshToken
-            {
-                UserId = user.UserId,
-                TokenHash = refreshTokenHash,
-                CreatedAt = DateTimeOffset.UtcNow,
-                ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
-                RevokedAt = null,
-                ReplacedByTokenHash = null
-            };
-
-            // 7. 儲存到資料庫
-            _context.UserRefreshToken.Add(userRefreshToken);
-
-            await _context.SaveChangesAsync();
-
-            // 8. 將原始 Refresh Token 放進 HttpOnly Cookie
+            // 4. Refresh Token 放 HttpOnly Cookie
             Response.Cookies.Append(
                 "refreshToken",
-                refreshToken,
+                tokenResult.RefreshToken,
                 new CookieOptions
                 {
                     HttpOnly = true,
                     Secure = true,
                     SameSite = SameSiteMode.None,
-                    Expires = DateTimeOffset.UtcNow.AddDays(7)
+
+                    Expires =
+                        tokenResult.RefreshTokenExpiresAt
                 }
             );
 
-            // 9. 回傳 Access Token
+            // 5. Access Token 回 Vue
             return Ok(new
             {
-                token = accessToken,
-                name = user.Username,
-                account = user.Account,
-                role = ((UserTypeEnum)user.UserType).ToString()
+                token = tokenResult.AccessToken,
+
+                userId = tokenResult.UserId,
+
+                name = tokenResult.Name,
+
+                account = tokenResult.Account,
+
+                role = tokenResult.Role
             });
         }
 
