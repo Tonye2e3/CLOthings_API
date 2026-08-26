@@ -35,6 +35,10 @@ public partial class User
 
     public virtual ICollection<Cart> Cart { get; set; } = new List<Cart>();
 
+    public virtual ICollection<ChatMessage> ChatMessageReceiver { get; set; } = new List<ChatMessage>();
+
+    public virtual ICollection<ChatMessage> ChatMessageSender { get; set; } = new List<ChatMessage>();
+
     public virtual ICollection<CommunityFavorite> CommunityFavorite { get; set; } = new List<CommunityFavorite>();
 
     public virtual ICollection<CommunityPost> CommunityPost { get; set; } = new List<CommunityPost>();
@@ -57,6 +61,8 @@ public partial class User
 
     public virtual ICollection<PostLike> PostLike { get; set; } = new List<PostLike>();
 
+    public virtual ICollection<ProductReturn> ProductReturn { get; set; } = new List<ProductReturn>();
+
     public virtual ICollection<Review> Review { get; set; } = new List<Review>();
 
     public virtual ICollection<UserAddress> UserAddress { get; set; } = new List<UserAddress>();
@@ -67,5 +73,9 @@ public partial class User
 
     public virtual ICollection<UserOAuth> UserOAuth { get; set; } = new List<UserOAuth>();
 
+    public virtual ICollection<UserPasswordResetToken> UserPasswordResetToken { get; set; } = new List<UserPasswordResetToken>();
+
     public virtual ICollection<UserProfile> UserProfile { get; set; } = new List<UserProfile>();
+
+    public virtual ICollection<UserRefreshToken> UserRefreshToken { get; set; } = new List<UserRefreshToken>();
 }
