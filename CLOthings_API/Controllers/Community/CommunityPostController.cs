@@ -293,6 +293,62 @@ public class CommunityPostController : ControllerBase
             .ToListAsync();
     }
 
+    // GET: api/CommunityPost/by-product/5
+    // 查「有標記過這件商品的貼文」，依讚數（likesCount）由多到少排序，取前 3 篇——
+    // 給商城產品頁的「社群穿搭靈感」用，跟 similar/{communitypostid} 那支很像，
+    // 差別是那支的起點是「另一篇貼文」（找標記過同樣商品的其他貼文），
+    // 這支的起點直接是「商品 id」（商城產品頁本來就知道自己是哪個商品，
+    // 不需要先繞去問某篇貼文標記了什麼）。一樣不用登入。
+    [HttpGet("by-product/{productid}")]
+    public async Task<IEnumerable<CommunityPostDTO>> GetCommunityPostsByProduct(int productid)
+    {
+        var postIds = await _context.PostTaggedProduct
+            .Where(t => t.ProductId == productid)
+            .Select(t => t.CommunityPostId)
+            .Distinct()
+            .ToListAsync();
+
+        return await _context.CommunityPost
+            .Where(c => postIds.Contains(c.CommunityPostId))
+            .OrderByDescending(c => c.PostLike.Count())
+            .Take(3)
+            .Select(c => new CommunityPostDTO
+            {
+                CommunityPostId = c.CommunityPostId,
+                UserId = c.UserId,
+                Content = c.Content,
+                PostDate = c.PostDate,
+                Status = c.Status,
+                User = new UserSummaryDTO
+                {
+                    UserId = c.User.UserId,
+                    Name = c.User.Username,
+                    Avatar = c.User.UserProfile.Select(p => p.Avatar).FirstOrDefault()
+                },
+                Images = c.PostImage
+                    .OrderBy(i => i.SortOrder)
+                    .Select(i => new PostImageDTO
+                    {
+                        PostImageId = i.PostImageId,
+                        ImageFileName = i.ImageFileName,
+                        SortOrder = i.SortOrder
+                    }).ToList(),
+                LikesCount = c.PostLike.Count(),
+                CommentsCount = c.PostComment.Count(),
+                TaggedProducts = c.PostTaggedProduct
+                    .Select(t => new TaggedProductDTO
+                    {
+                        PostTaggedProductId = t.PostTaggedProductId,
+                        ProductId = t.ProductId,
+                        ProductRoute = t.ProductRoute,
+                        Name = t.Product.ProductName,
+                        Image = t.Product.ProductImg.Select(pi => pi.ProductImgFile).FirstOrDefault(),
+                        Price = t.Product.Price
+                    }).ToList()
+            })
+            .ToListAsync();
+    }
+
     // PUT: api/CommunityPost/5
     // 加 [Authorize]：改貼文內容／狀態／圖片／標籤是寫入動作，一定要登入才能做。
     //
