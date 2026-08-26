@@ -171,18 +171,32 @@ public class UserFollowController : ControllerBase
 
         // 追蹤成功後，順便通知被追蹤的那個人——正常情況下不會有人追蹤自己，
         // 但還是保守加個判斷，避免萬一發生時通知自己。
+        //
+        // 防重複通知：如果同一個人對同一個人「還沒讀」的追蹤通知已經存在，就不要再新增一筆——
+        // 不然使用者取消追蹤又重新追蹤（不管是手滑還是真的反悔），通知會一直重複疊加，
+        // 對方點開鈴鐺會看到好幾則一模一樣的「XXX 追蹤了你」。如果那則通知已經被讀過了，
+        // 代表對方已經看過、事情算「翻頁」了，這次重新追蹤才會再產生一則新的通知。
         if (followDTO.FollowingId != currentUserId.Value)
         {
-            _context.Notification.Add(new Notification
+            var alreadyNotified = await _context.Notification.AnyAsync(n =>
+                n.UserId == followDTO.FollowingId &&
+                n.FromUserId == currentUserId.Value &&
+                n.Type == "follow" &&
+                !n.IsRead);
+
+            if (!alreadyNotified)
             {
-                UserId = followDTO.FollowingId,
-                FromUserId = currentUserId.Value,
-                Type = "follow",
-                CommunityPostId = null,
-                CreatedDate = DateTimeOffset.Now,
-                IsRead = false
-            });
-            await _context.SaveChangesAsync();
+                _context.Notification.Add(new Notification
+                {
+                    UserId = followDTO.FollowingId,
+                    FromUserId = currentUserId.Value,
+                    Type = "follow",
+                    CommunityPostId = null,
+                    CreatedDate = DateTimeOffset.Now,
+                    IsRead = false
+                });
+                await _context.SaveChangesAsync();
+            }
         }
 
         return new ResultDTO { OK = true, Code = 204 };

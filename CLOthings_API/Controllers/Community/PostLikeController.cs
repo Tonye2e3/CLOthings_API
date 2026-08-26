@@ -137,6 +137,20 @@ public class PostLikeController : ControllerBase
         try
         {
             _context.PostLike.Remove(like);
+
+            // 取消讚的時候，把對應的「按讚通知」也一起收回——但只收回「還沒被讀過」的，
+            // 已經讀過的就當作歷史紀錄保留，不去動它（對方已經看過那則通知了，
+            // 事後把它刪掉，比較像是竄改歷史，而不是單純的「這件事已經不成立了」）。
+            var relatedNotification = await _context.Notification.FirstOrDefaultAsync(n =>
+                n.Type == "like" &&
+                n.FromUserId == currentUserId.Value &&
+                n.CommunityPostId == like.CommunityPostId &&
+                !n.IsRead);
+            if (relatedNotification != null)
+            {
+                _context.Notification.Remove(relatedNotification);
+            }
+
             await _context.SaveChangesAsync();
         }
         catch (DbUpdateException)
