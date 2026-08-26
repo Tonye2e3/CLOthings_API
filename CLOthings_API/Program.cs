@@ -8,10 +8,9 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using System.Security.Claims;
 using System.Text;
-<<<<<<< Updated upstream
-=======
+
 using System.Threading.RateLimiting;
->>>>>>> Stashed changes
+
 
 var builder = WebApplication.CreateBuilder(args);
 
