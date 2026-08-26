@@ -57,6 +57,8 @@ public partial class CLOthingsContext : DbContext
 
     public virtual DbSet<Invoice> Invoice { get; set; }
 
+    public virtual DbSet<Notification> Notification { get; set; }
+
     public virtual DbSet<Order> Order { get; set; }
 
     public virtual DbSet<OrderDetail> OrderDetail { get; set; }
@@ -70,6 +72,8 @@ public partial class CLOthingsContext : DbContext
     public virtual DbSet<PostLike> PostLike { get; set; }
 
     public virtual DbSet<PostShortUrl> PostShortUrl { get; set; }
+
+    public virtual DbSet<PostReport> PostReport { get; set; }
 
     public virtual DbSet<PostTaggedProduct> PostTaggedProduct { get; set; }
 
@@ -100,6 +104,8 @@ public partial class CLOthingsContext : DbContext
     public virtual DbSet<UserFollow> UserFollow { get; set; }
 
     public virtual DbSet<UserOAuth> UserOAuth { get; set; }
+
+    public virtual DbSet<UserPasswordResetToken> UserPasswordResetToken { get; set; }
 
     public virtual DbSet<UserProfile> UserProfile { get; set; }
 
@@ -489,6 +495,31 @@ public partial class CLOthingsContext : DbContext
                 .HasConstraintName("FK_Invoice_Order");
         });
 
+        modelBuilder.Entity<Notification>(entity =>
+        {
+            entity.HasKey(e => e.NotificationId);
+
+            entity.Property(e => e.Type).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.CreatedDate).HasDefaultValueSql("(sysdatetimeoffset())");
+            entity.Property(e => e.IsRead).HasDefaultValue(false);
+
+            entity.HasOne(d => d.User).WithMany()
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_Notification_User");
+
+            entity.HasOne(d => d.FromUser).WithMany()
+                .HasForeignKey(d => d.FromUserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_Notification_FromUser");
+
+            entity.HasOne(d => d.CommunityPost).WithMany()
+                .HasForeignKey(d => d.CommunityPostId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_Notification_CommunityPost");
+        });
+
         modelBuilder.Entity<Order>(entity =>
         {
             entity.Property(e => e.Freight).HasColumnType("decimal(10, 2)");
@@ -633,6 +664,26 @@ public partial class CLOthingsContext : DbContext
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_PostShortUrl_CommunityPost");
         });
+
+        modelBuilder.Entity<PostReport>(entity =>
+        {
+            entity.HasKey(e => e.PostReportId);
+
+            entity.HasIndex(e => new { e.CommunityPostId, e.ReporterId }, "UQ_PostReport_Post_Reporter").IsUnique();
+
+            entity.Property(e => e.Reason).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.CreatedDate).HasDefaultValueSql("(sysdatetimeoffset())");
+
+            entity.HasOne(d => d.CommunityPost).WithMany()
+                .HasForeignKey(d => d.CommunityPostId)
+                .HasConstraintName("FK_PostReport_CommunityPost");
+
+            entity.HasOne(d => d.Reporter).WithMany()
+                .HasForeignKey(d => d.ReporterId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_PostReport_Reporter");
+        });
+
 
         modelBuilder.Entity<PostTaggedProduct>(entity =>
         {
@@ -807,11 +858,9 @@ public partial class CLOthingsContext : DbContext
                 .HasMaxLength(255)
                 .IsUnicode(false);
             entity.Property(e => e.Password)
-                .IsRequired()
                 .HasMaxLength(1000)
                 .IsUnicode(false);
             entity.Property(e => e.Phone)
-                .IsRequired()
                 .HasMaxLength(50)
                 .IsUnicode(false);
             entity.Property(e => e.TwoFactorEnabled).HasDefaultValue(false, "DF_User_TwoFactorEnabled");
@@ -883,6 +932,22 @@ public partial class CLOthingsContext : DbContext
                 .HasForeignKey(d => d.UserId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_UserOAuth_User");
+        });
+
+        modelBuilder.Entity<UserPasswordResetToken>(entity =>
+        {
+            entity.HasKey(e => e.UserPasswordResetTokenId).HasName("PK__UserPass__2B5909C19F933AF3");
+
+            entity.HasIndex(e => e.TokenHash, "IX_UserPasswordResetToken_TokenHash").IsUnique();
+
+            entity.Property(e => e.TokenHash)
+                .IsRequired()
+                .HasMaxLength(100)
+                .IsUnicode(false);
+
+            entity.HasOne(d => d.User).WithMany(p => p.UserPasswordResetToken)
+                .HasForeignKey(d => d.UserId)
+                .HasConstraintName("FK_UserPasswordResetToken_User");
         });
 
         modelBuilder.Entity<UserProfile>(entity =>

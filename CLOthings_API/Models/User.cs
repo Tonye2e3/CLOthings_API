@@ -71,6 +71,10 @@ public partial class User
 
     public virtual ICollection<UserFollow> UserFollowFollowing { get; set; } = new List<UserFollow>();
 
+    public virtual ICollection<UserOAuth> UserOAuth { get; set; } = new List<UserOAuth>();
+
+    public virtual ICollection<UserPasswordResetToken> UserPasswordResetToken { get; set; } = new List<UserPasswordResetToken>();
+
     public virtual ICollection<UserProfile> UserProfile { get; set; } = new List<UserProfile>();
 
     public virtual ICollection<UserRefreshToken> UserRefreshToken { get; set; } = new List<UserRefreshToken>();

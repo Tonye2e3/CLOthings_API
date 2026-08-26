@@ -129,6 +129,24 @@ public class ChatController : ControllerBase
             return BadRequest();
         }
 
+        // 資安修正：跟 CommunityPostController.cs 的 upload-images 補上同一套檢查——
+        // 副檔名白名單 + 檔案大小上限，原本完全沒檢查上傳的實際是不是圖片、檔案多大都收。
+        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
+        const long maxFileSizeBytes = 5 * 1024 * 1024;
+
+        foreach (var file in files)
+        {
+            var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (!allowedExtensions.Contains(ext))
+            {
+                return BadRequest($"不支援的檔案格式：{file.FileName}，只接受 jpg、png、gif、webp 格式的圖片。");
+            }
+            if (file.Length > maxFileSizeBytes)
+            {
+                return BadRequest($"檔案太大：{file.FileName}，單一檔案不能超過 5MB。");
+            }
+        }
+
         var folder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "images", "chat");
         if (!Directory.Exists(folder))
         {

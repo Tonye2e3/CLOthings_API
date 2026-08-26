@@ -1,12 +1,13 @@
 ﻿using CLOthings.Enums;
 using CLOthings_API.Models;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace CLOthings_API.Services
+namespace CLOthings_API.Services.Users
 {
     public class AuthTokenService
     {
@@ -83,6 +84,102 @@ namespace CLOthings_API.Services
             };
         }
 
+        public async Task<AuthTokenResult?> RefreshTokenAsync(string refreshToken)
+        {
+            // ① Cookie 裡的 Refresh Token → SHA256
+            var oldTokenHash = HashRefreshToken(refreshToken);
+
+            // ② 找資料庫紀錄
+            var storedToken = await _context.UserRefreshToken
+                .Include(r => r.User)
+                .FirstOrDefaultAsync(r =>
+                    r.TokenHash == oldTokenHash);
+
+            if (storedToken == null)
+            {
+                return null;
+            }
+
+            // ③ 已經被撤銷
+            if (storedToken.RevokedAt != null)
+            {
+                return null;
+            }
+
+            // ④ 已經過期
+            if (storedToken.ExpiresAt <= DateTimeOffset.UtcNow)
+            {
+                return null;
+            }
+
+            var user = storedToken.User;
+
+            if (user == null)
+            {
+                return null;
+            }
+
+            // ⑤ 產生新的 Access Token
+            var newAccessToken =
+                GenerateAccessToken(user);
+
+            // ⑥ 產生新的 Refresh Token
+            var newRefreshToken =
+                GenerateRefreshToken();
+
+            var newRefreshTokenHash =
+                HashRefreshToken(newRefreshToken);
+
+            var newExpiresAt =
+                DateTimeOffset.UtcNow.AddDays(7);
+
+            // ⑦ 舊 Refresh Token 作廢
+            storedToken.RevokedAt =
+                DateTimeOffset.UtcNow;
+
+            storedToken.ReplacedByTokenHash =
+                newRefreshTokenHash;
+
+            // ⑧ 新 Refresh Token 存資料庫
+            var newStoredToken = new UserRefreshToken
+            {
+                UserId = user.UserId,
+
+                TokenHash = newRefreshTokenHash,
+
+                CreatedAt = DateTimeOffset.UtcNow,
+
+                ExpiresAt = newExpiresAt,
+
+                RevokedAt = null,
+
+                ReplacedByTokenHash = null
+            };
+
+            _context.UserRefreshToken.Add(newStoredToken);
+
+            await _context.SaveChangesAsync();
+
+            // ⑨ 回傳新的 Token
+            return new AuthTokenResult
+            {
+                AccessToken = newAccessToken,
+
+                RefreshToken = newRefreshToken,
+
+                RefreshTokenExpiresAt = newExpiresAt,
+
+                UserId = user.UserId,
+
+                Name = user.Username,
+
+                Account = user.Account,
+
+                Role =
+                    ((UserTypeEnum)user.UserType)
+                    .ToString()
+            };
+        }
 
         // =========================================
         // JWT Access Token
@@ -183,6 +280,8 @@ namespace CLOthings_API.Services
                 hashBytes
             );
         }
+
+
     }
 
 
