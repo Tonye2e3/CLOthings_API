@@ -3,6 +3,7 @@ using CLOthings_API.DTOs.GroupShop;
 using CLOthings_API.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 [Route("api/GroupCart")]
@@ -67,6 +68,7 @@ public class GroupCartController : ControllerBase
     // POST: api/GroupCart
     // 加入購物車：同商品同規格已經在購物車裡的話，數量累加；沒有的話新增一筆
     [HttpPost]
+    [EnableRateLimiting("group")] // 防止有人寫程式狂刷加入購物車
     public async Task<ActionResult<GroupCartItemDTO>> AddToCart(AddGroupCartDTO dto)
     {
         var userId = GetUserId();
@@ -78,6 +80,12 @@ public class GroupCartController : ControllerBase
         if (product == null)
         {
             return NotFound("找不到這個團購商品");
+        }
+        // 已下架商品不能再被加入購物車，避免有人拿舊網址/舊分享連結、或商品下架前就開著的分頁，
+        // 繞過商品列表/詳情頁的過濾直接把已下架商品加進購物車
+        if (product.Status != "上架中")
+        {
+            return BadRequest("這個商品已經下架，無法加入購物車");
         }
 
         // 已下架/已成團/已流團的商品不能再加入購物車

@@ -7,6 +7,7 @@ using CLOthings_API.DTOs.GroupShop;
 using CLOthings_API.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 // 這支是「假的第三方金流商」：模擬使用者在銀行/金流頁面付款的過程。
@@ -47,11 +48,18 @@ public class GroupPaymentController : ControllerBase
     {
         public int UserId { get; set; }
         public GroupCheckoutDTO Dto { get; set; }
+        // 建立付款當下算好的應付金額，一併鎖起來存住。
+        // LINE Pay 規定 /confirm 的金額要跟 /request 當初送出去的金額完全一致，
+        // 不能等使用者從 LINE Pay 付款頁回來後才「重新」算一次金額再拿去 confirm——
+        // 如果這段等待期間購物車被改了、或團購門檻被別人的訂單推過去，兩次算出來的金額就會兜不起來，
+        // 導致使用者明明已經付款成功，LINE Pay 的 confirm 卻會被拒絕。
+        public int Amount { get; set; }
     }
 
     // POST: api/GroupPayment/create
     // 結帳頁按下「前往付款」時呼叫這支：不會直接建立訂單，只是先把收件資訊記下來，換一個 paymentId
     [HttpPost("create")]
+    [EnableRateLimiting("group")] // 防止有人狂建立待付款單塞爆記憶體
     public async Task<ActionResult<CreatePaymentResultDTO>> CreatePayment(GroupCheckoutDTO dto)
     {
         var userId = GetUserId();
@@ -70,7 +78,7 @@ public class GroupPaymentController : ControllerBase
         var amount = await CalculateAmountAsync(userId);
 
         var paymentId = Guid.NewGuid().ToString("N");
-        PendingPayments[paymentId] = new PendingPaymentEntry { UserId = userId, Dto = dto };
+        PendingPayments[paymentId] = new PendingPaymentEntry { UserId = userId, Dto = dto, Amount = amount };
 
         return Ok(new CreatePaymentResultDTO
         {
@@ -120,7 +128,11 @@ public class GroupPaymentController : ControllerBase
         return Ok(new PendingPaymentDTO
         {
             PaymentId = paymentId,
-            Amount = await CalculateAmountAsync(entry.UserId),
+            // 改用 CreatePayment 當初鎖住存好的金額，不要再重新計算——
+            // 跟 LINE Pay 那邊的 ConfirmLinePay 保持同一套邏輯：使用者在這個「確認訂單」頁面
+            // 停留期間，就算購物車內容或團購門檻變了，這裡顯示的金額也要跟最後 ConfirmPayment
+            // 實際建立訂單時的金額一致，不能讓畫面顯示一個數字、卻用另一個數字建單
+            Amount = entry.Amount,
             PaymentMethod = dto.PaymentMethod,
             Items = items
         });
@@ -167,6 +179,7 @@ public class GroupPaymentController : ControllerBase
     // 先跟 CreatePayment 一樣把收件資訊記下來、換一個 paymentId，
     // 再呼叫 LINE Pay 的 Request API 換一個 LINE Pay 的付款頁網址，回傳給前端整頁導過去
     [HttpPost("linepay/request")]
+    [EnableRateLimiting("group")] // 防止有人狂發 LINE Pay 請求，浪費第三方 API 額度
     public async Task<ActionResult<LinePayRequestResultDTO>> RequestLinePay(GroupCheckoutDTO dto)
     {
         var userId = GetUserId();
@@ -199,7 +212,9 @@ public class GroupPaymentController : ControllerBase
         var amount = subtotal + freight;
 
         var paymentId = Guid.NewGuid().ToString("N");
-        PendingPayments[paymentId] = new PendingPaymentEntry { UserId = userId, Dto = dto };
+        // 把這次 request 送出去的金額鎖起來存住，等使用者從 LINE Pay 付款頁回來 confirm 時直接複用，
+        // 不要再重新計算一次（見 PendingPaymentEntry.Amount 的說明）
+        PendingPayments[paymentId] = new PendingPaymentEntry { UserId = userId, Dto = dto, Amount = amount };
 
         // LINE Pay 規定 packages[].amount 要等於底下 products 的加總，這裡把購物車品項跟運費分開列成兩個 product
         var products = priced.Select(p => new
@@ -279,7 +294,10 @@ public class GroupPaymentController : ControllerBase
             return Redirect($"{frontendFailUrl}?linepay=fail&reason=not_found");
         }
 
-        var amount = await CalculateAmountAsync(entry.UserId);
+        // 直接用 request 當初鎖住的金額，不能重新計算——
+        // 如果這段等待期間購物車變了或團購門檻被別人推過去，重新算出來的金額會跟 LINE Pay
+        // 那邊實際請款/顯示給使用者看的金額對不上，導致這支 confirm 被 LINE Pay 拒絕
+        var amount = entry.Amount;
 
         var confirmBody = new { amount, currency = "TWD" };
         var (success, resultJson) = await CallLinePayApiAsync("POST", $"/v3/payments/{transactionId}/confirm", confirmBody);

@@ -16,6 +16,10 @@ public class GroupProductController : ControllerBase
 
     // GET: api/GroupProduct
     // keyword 選填，對應前端商品列表頁的搜尋框（商品名稱模糊搜尋）
+    // 買家端回傳「上架中」+「已成團」的商品（已成團要給首頁「已達團購數量」區塊用），
+    // 「已下架」商品（GroupProductAdminView 刪除已有訂單的商品時會把 Status 改成「已下架」，
+    // 而不是真的刪除，用來保留歷史訂單資料）跟「已流團」商品不應該再讓買家看到、買到。
+    // 管理端不受限，能看到所有狀態的商品。
     [HttpGet]
     public async Task<ActionResult<IEnumerable<GroupProductDTO>>> GetGroupProducts([FromQuery] string keyword = null)
     {
@@ -24,6 +28,9 @@ public class GroupProductController : ControllerBase
         // 買家端看不到「已下架」跟「已流團」的商品；「已成團」是結算後的正常結果狀態，
         // 首頁「已達團購數量 (完成)」區塊要用得到，所以買家端還是看得到，只是不能再加入購物車（AddToCart 那邊擋）。
         // 管理端（商品管理頁也是打這支）不受限，要看得到全部狀態才能管理。
+        // 修正:原本不管有沒有登入、是不是管理員，一律先套用 Status == "上架中" 的過濾，
+        // 導致下面 isAdmin 判斷形同虛設，管理員一樣看不到已下架/已成團/已流團的商品。
+        // 現在改成:只有「非管理員」才套用狀態過濾,管理員能看到全部狀態。
         var isAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
         if (!isAdmin)
         {
@@ -53,6 +60,8 @@ public class GroupProductController : ControllerBase
     }
 
     // GET: api/GroupProduct/5
+    // 買家端商品詳情：同樣只允許看「上架中」的商品，已下架商品直接當成 404，
+    // 避免有人用舊的分享連結、或直接改網址上的 id，繞過商品列表頁看到已下架商品
     [HttpGet("{id}")]
     public async Task<ActionResult<GroupProductDTO>> GetGroupProduct(int id)
     {
@@ -63,6 +72,8 @@ public class GroupProductController : ControllerBase
         }
 
         // 商品「已下架」或「已流團」的話，買家端一律當 404 處理；「已成團」的話買家端還是看得到（結算後的正常結果），管理端不受限
+        // 修正:原本不管是誰，一律先擋掉 Status != "上架中"，導致連「已成團」商品、連管理員都看不到，
+        // 跟上面這行註解寫的意圖矛盾。現在改成只有「非管理員」才會被「已下架/已流團」擋下。
         var isAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
         if (!isAdmin && (product.Status == "已下架" || product.Status == "已流團"))
         {
