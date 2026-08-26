@@ -1,7 +1,7 @@
 ﻿using CLOthings.Enums;
 using CLOthings_API.DTO.User;
 using CLOthings_API.Models;
-using CLOthings_API.Services;
+using CLOthings_API.Services.Users;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
