@@ -15,11 +15,13 @@ namespace CLOthings_API.Controllers.Shop
     {
         private readonly CLOthingsContext _context;
         private readonly IConfiguration _config;
+        private readonly IConfiguration _configuration; // 🟢【新增】注入 IConfiguration
 
-        public PaymentController(CLOthingsContext context, IConfiguration config)
+        public PaymentController(CLOthingsContext context, IConfiguration config, IConfiguration configuration)
         {
             _context = context;
             _config = config;
+            _configuration = configuration;
         }
 
         // POST api/payment/{orderId} —— 產生綠界付款表單
@@ -143,8 +145,17 @@ namespace CLOthings_API.Controllers.Shop
             var rtnCode = form["RtnCode"].ToString();       // 1 = 成功
             var orderId = form["CustomField1"].ToString();  // 訂單 id
 
+            // 🟢【新增】從設定取得前端網址
+            var frontendBaseUrl = _configuration["Frontend:BaseUrl"];
+
             // 重導向到前端付款完成頁，帶上結果
-            var frontendUrl = $"http://localhost:5173/shop/payment-result?orderId={orderId}&success={(rtnCode == "1" ? "1" : "0")}";
+            // 🟡【修改】不再寫死 localhost
+            var frontendUrl =
+                $"{frontendBaseUrl}/shop/payment-result" +
+                $"?orderId={orderId}" +
+                $"&success={(rtnCode == "1" ? "1" : "0")}";
+
+
             return Redirect(frontendUrl);
         }
     }
