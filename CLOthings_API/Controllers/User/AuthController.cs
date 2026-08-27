@@ -1,14 +1,10 @@
-﻿using CLOthings.Enums;
-using CLOthings_API.DTO.User;
+﻿using CLOthings_API.DTO.User;
 using CLOthings_API.Models;
 using CLOthings_API.Services.Users;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -22,17 +18,20 @@ namespace CLOthings_API.Controllers
         private readonly IConfiguration _configuration;
         private readonly IPasswordHasher<User> _passwordHasher;
         private readonly AuthTokenService _authTokenService;
+        private readonly UserEmailService _userEmailService;
 
         public AuthController(
             CLOthingsContext context,
             IConfiguration configuration,
             IPasswordHasher<User> passwordHasher,
-            AuthTokenService authTokenService)
+            AuthTokenService authTokenService,
+            UserEmailService userEmailService)
         {
             _context = context;
             _configuration = configuration;
             _passwordHasher = passwordHasher;
             _authTokenService = authTokenService;
+            _userEmailService = userEmailService;
         }
 
         // POST: api/User/login
@@ -98,59 +97,6 @@ namespace CLOthings_API.Controllers
             });
         }
 
-        // 產生 JWT Access Token
-        private string GenerateAccessToken(User user)
-        {
-
-
-            var role = ((UserTypeEnum)user.UserType).ToString();
-
-            var claims = new[]
-            {
-                new Claim(
-                    ClaimTypes.NameIdentifier,
-                    user.UserId.ToString()
-                ),
-
-                new Claim(
-                    ClaimTypes.Name,
-                    user.Username
-                ),
-
-                new Claim(
-                    "account",
-                    user.Account
-                ),
-
-                new Claim(
-                    ClaimTypes.Role,
-                    role
-                )
-            };
-
-            var key = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(
-                    _configuration["Jwt:Key"]!
-                )
-            );
-
-            var credentials = new SigningCredentials(
-                key,
-                SecurityAlgorithms.HmacSha256
-            );
-
-            var token = new JwtSecurityToken(
-                issuer: _configuration["Jwt:Issuer"],
-                audience: _configuration["Jwt:Audience"],
-                claims: claims,
-                expires: DateTime.UtcNow.AddMinutes(20),
-                signingCredentials: credentials
-            );
-
-            return new JwtSecurityTokenHandler()
-                .WriteToken(token);
-
-        }
 
         // 產生 Refresh Token
         private string GenerateRefreshToken()
@@ -220,7 +166,7 @@ namespace CLOthings_API.Controllers
             }
 
             // 7. 產生新的 Access Token
-            var newAccessToken = GenerateAccessToken(user);
+            var newAccessToken = _authTokenService.CreateAccessToken(user);
 
             // 8. 產生新的 Refresh Token
             var newRefreshToken = GenerateRefreshToken();
@@ -382,14 +328,31 @@ namespace CLOthings_API.Controllers
 
             await _context.SaveChangesAsync();
 
-            // ⚠️ 現在還沒做 Email
-            // 暫時把原始 Token 回傳，只供開發測試
+            // 7. 建立前端密碼重設網址
+            // 從設定取得前端網址
+            var frontendBaseUrl = _configuration["Frontend:BaseUrl"];
+
+            if (string.IsNullOrWhiteSpace(frontendBaseUrl))
+            {
+                throw new InvalidOperationException(
+                    "Frontend:BaseUrl 尚未設定"
+                );
+            }
+            // 建立密碼重設網址
+            var resetLink =
+                $"{frontendBaseUrl.TrimEnd('/')}/reset-password?token={Uri.EscapeDataString(resetToken)}";
+
+            // 8. 寄送密碼重設 Email
+            await _userEmailService.SendPasswordResetEmailAsync(
+                user.Email,
+                resetLink
+            );
+
+            // 9. 不將 Reset Token 回傳給前端
             return Ok(new
             {
                 message =
-                    "如果此 Email 已註冊，我們會寄送密碼重設信件",
-
-                resetToken
+                    "如果此 Email 已註冊，我們會寄送密碼重設信件"
             });
         }
 
@@ -435,6 +398,22 @@ namespace CLOthings_API.Controllers
             if (user == null)
             {
                 return BadRequest("使用者不存在");
+            }
+
+            // 🟢 新增：檢查新密碼是否與目前密碼相同
+            if (!string.IsNullOrEmpty(user.Password))
+            {
+                var passwordResult =
+                    _passwordHasher.VerifyHashedPassword(
+                        user,
+                        user.Password,
+                        dto.NewPassword
+                    );
+
+                if (passwordResult != PasswordVerificationResult.Failed)
+                {
+                    return BadRequest("新密碼不可與目前密碼相同");
+                }
             }
 
             // 7. 新密碼 Hash

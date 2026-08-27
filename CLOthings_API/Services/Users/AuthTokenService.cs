@@ -37,7 +37,12 @@ namespace CLOthings_API.Services.Users
             var refreshTokenHash =
                 HashRefreshToken(refreshToken);
 
-            // 4. 儲存 Refresh Token
+            // 這裡使用 DateTimeOffset.UtcNow 來取得當前的 UTC 時間，並將 Refresh Token 的過期時間設置為 7 天後
+            var now = DateTimeOffset.UtcNow;
+            // Refresh Token 過期時間只計算一次
+            var refreshTokenExpiresAt = now.AddDays(7);
+
+            // 4. 儲存 Refresh Token 到資料庫
             var userRefreshToken =
                 new UserRefreshToken
                 {
@@ -45,11 +50,9 @@ namespace CLOthings_API.Services.Users
 
                     TokenHash = refreshTokenHash,
 
-                    CreatedAt =
-                        DateTimeOffset.UtcNow,
-
-                    ExpiresAt =
-                        DateTimeOffset.UtcNow.AddDays(7),
+                    CreatedAt = now,
+                    // Refresh Token 過期時間
+                    ExpiresAt = refreshTokenExpiresAt,
 
                     RevokedAt = null,
 
@@ -62,15 +65,14 @@ namespace CLOthings_API.Services.Users
 
             await _context.SaveChangesAsync();
 
-            // 5. 回傳登入需要的資料
+            // 5. 回傳登入需要的資料 給前端
             return new AuthTokenResult
             {
                 AccessToken = accessToken,
 
                 RefreshToken = refreshToken,
-
-                RefreshTokenExpiresAt =
-                    DateTimeOffset.UtcNow.AddDays(7),
+                // Refresh Token 過期時間
+                RefreshTokenExpiresAt = refreshTokenExpiresAt,
 
                 UserId = user.UserId,
 
@@ -129,7 +131,7 @@ namespace CLOthings_API.Services.Users
 
             var newRefreshTokenHash =
                 HashRefreshToken(newRefreshToken);
-
+            //  新 Refresh Token 過期時間
             var newExpiresAt =
                 DateTimeOffset.UtcNow.AddDays(7);
 
@@ -179,6 +181,12 @@ namespace CLOthings_API.Services.Users
                     ((UserTypeEnum)user.UserType)
                     .ToString()
             };
+        }
+
+        // 🟢【新增】提供 Refresh 流程建立新的 Access Token
+        public string CreateAccessToken(User user)
+        {
+            return GenerateAccessToken(user);
         }
 
         // =========================================
@@ -235,7 +243,7 @@ namespace CLOthings_API.Services.Users
                         _configuration["Jwt:Audience"],
 
                     claims: claims,
-
+                    //Access Token 有效時間
                     expires:
                         DateTime.UtcNow.AddMinutes(20),
 
