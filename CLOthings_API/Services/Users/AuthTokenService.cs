@@ -37,10 +37,10 @@ namespace CLOthings_API.Services.Users
             var refreshTokenHash =
                 HashRefreshToken(refreshToken);
 
-            // 🟢 新增：Refresh Token 過期時間只計算一次
+            // 這裡使用 DateTimeOffset.UtcNow 來取得當前的 UTC 時間，並將 Refresh Token 的過期時間設置為 7 天後
             var now = DateTimeOffset.UtcNow;
-            var refreshTokenExpiresAt =
-                DateTimeOffset.UtcNow.AddMinutes(1);
+            // Refresh Token 過期時間只計算一次
+            var refreshTokenExpiresAt = now.AddDays(7);
 
             // 4. 儲存 Refresh Token 到資料庫
             var userRefreshToken =
@@ -133,7 +133,7 @@ namespace CLOthings_API.Services.Users
                 HashRefreshToken(newRefreshToken);
             //  新 Refresh Token 過期時間
             var newExpiresAt =
-                DateTimeOffset.UtcNow.AddMinutes(1);
+                DateTimeOffset.UtcNow.AddDays(7);
 
             // ⑦ 舊 Refresh Token 作廢
             storedToken.RevokedAt =
@@ -245,7 +245,7 @@ namespace CLOthings_API.Services.Users
                     claims: claims,
                     //Access Token 有效時間
                     expires:
-                        DateTime.UtcNow.AddSeconds(20),
+                        DateTime.UtcNow.AddMinutes(20),
 
                     signingCredentials:
                         credentials
