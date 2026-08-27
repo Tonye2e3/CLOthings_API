@@ -1,6 +1,6 @@
 using CLOthings_API.Hubs;
 using CLOthings_API.Models;
-using CLOthings_API.Middleware; 
+using CLOthings_API.Middleware;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -8,9 +8,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using System.Security.Claims;
 using System.Text;
-
 using System.Threading.RateLimiting;
-
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -59,7 +57,7 @@ builder.Services
             // 現在測試 Access Token 5 秒過期時很重要
             ClockSkew = TimeSpan.Zero
         };
-    
+
 
         // 一般的 API 請求，瀏覽器可以夾帶 Authorization: Bearer xxx 這個標頭，
         // 但 WebSocket 連線（ChatHub 用的就是這個）沒辦法這樣夾帶自訂標頭，
@@ -68,19 +66,19 @@ builder.Services
         // 這裡多加這段，是告訴 JWT 驗證機制：如果請求是打 /hub 開頭的路徑，
         // 且網址上有帶 access_token，就改成讀那個值來驗證身分，
         // 而不是隻認 Authorization 標頭（一般 API 請求不受影響，邏輯不變）。
-         options.Events = new JwtBearerEvents
-         {
-             OnMessageReceived = context =>
-             {
-                  var accessToken = context.Request.Query["access_token"];
-                  var path = context.HttpContext.Request.Path;
-                  if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hub"))
-                  {
-                      context.Token = accessToken;
-                  }
-                  return Task.CompletedTask;
-             }
-         };
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hub"))
+                {
+                    context.Token = accessToken;
+                }
+                return Task.CompletedTask;
+            }
+        };
     });
 
 //CORS
@@ -89,7 +87,10 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowFrontend",
         policy =>
         {
-            policy.WithOrigins("http://localhost:5173") // 前端網址
+            policy.WithOrigins(
+                    "http://localhost:5173",                                  // 本機開發用前端
+                    "https://victorious-moss-045aad400.7.azurestaticapps.net" // 正式部署前端（Azure Static Web Apps）
+                  )
                   .AllowAnyHeader()
                   .AllowAnyMethod()
                   .AllowCredentials();
