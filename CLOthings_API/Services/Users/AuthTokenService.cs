@@ -37,7 +37,12 @@ namespace CLOthings_API.Services.Users
             var refreshTokenHash =
                 HashRefreshToken(refreshToken);
 
-            // 4. 儲存 Refresh Token
+            // 🟢 新增：Refresh Token 過期時間只計算一次
+            var now = DateTimeOffset.UtcNow;
+            var refreshTokenExpiresAt =
+                DateTimeOffset.UtcNow.AddMinutes(1);
+
+            // 4. 儲存 Refresh Token 到資料庫
             var userRefreshToken =
                 new UserRefreshToken
                 {
@@ -45,11 +50,9 @@ namespace CLOthings_API.Services.Users
 
                     TokenHash = refreshTokenHash,
 
-                    CreatedAt =
-                        DateTimeOffset.UtcNow,
-
-                    ExpiresAt =
-                        DateTimeOffset.UtcNow.AddDays(7),
+                    CreatedAt = now,
+                    // Refresh Token 過期時間
+                    ExpiresAt = refreshTokenExpiresAt,
 
                     RevokedAt = null,
 
@@ -62,15 +65,14 @@ namespace CLOthings_API.Services.Users
 
             await _context.SaveChangesAsync();
 
-            // 5. 回傳登入需要的資料
+            // 5. 回傳登入需要的資料 給前端
             return new AuthTokenResult
             {
                 AccessToken = accessToken,
 
                 RefreshToken = refreshToken,
-
-                RefreshTokenExpiresAt =
-                    DateTimeOffset.UtcNow.AddDays(7),
+                // Refresh Token 過期時間
+                RefreshTokenExpiresAt = refreshTokenExpiresAt,
 
                 UserId = user.UserId,
 
@@ -129,9 +131,9 @@ namespace CLOthings_API.Services.Users
 
             var newRefreshTokenHash =
                 HashRefreshToken(newRefreshToken);
-
+            //  新 Refresh Token 過期時間
             var newExpiresAt =
-                DateTimeOffset.UtcNow.AddDays(7);
+                DateTimeOffset.UtcNow.AddMinutes(1);
 
             // ⑦ 舊 Refresh Token 作廢
             storedToken.RevokedAt =
@@ -241,9 +243,9 @@ namespace CLOthings_API.Services.Users
                         _configuration["Jwt:Audience"],
 
                     claims: claims,
-
+                    //Access Token 有效時間
                     expires:
-                        DateTime.UtcNow.AddSeconds(10),
+                        DateTime.UtcNow.AddSeconds(20),
 
                     signingCredentials:
                         credentials
