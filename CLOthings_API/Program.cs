@@ -9,9 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Security.Claims;
 using System.Text;
-
 using System.Threading.RateLimiting;
-
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -130,7 +128,10 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowFrontend",
         policy =>
         {
-            policy.WithOrigins("http://localhost:5173") // 前端網址
+            policy.WithOrigins(
+                    "http://localhost:5173",                                  // 本機開發用前端
+                    "https://victorious-moss-045aad400.7.azurestaticapps.net" // 正式部署前端（Azure Static Web Apps）
+                  )
                   .AllowAnyHeader()
                   .AllowAnyMethod()
                   .AllowCredentials();
