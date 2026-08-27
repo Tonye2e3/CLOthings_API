@@ -181,6 +181,12 @@ namespace CLOthings_API.Services.Users
             };
         }
 
+        // 🟢【新增】提供 Refresh 流程建立新的 Access Token
+        public string CreateAccessToken(User user)
+        {
+            return GenerateAccessToken(user);
+        }
+
         // =========================================
         // JWT Access Token
         // =========================================
@@ -237,7 +243,7 @@ namespace CLOthings_API.Services.Users
                     claims: claims,
 
                     expires:
-                        DateTime.UtcNow.AddMinutes(20),
+                        DateTime.UtcNow.AddSeconds(10),
 
                     signingCredentials:
                         credentials
