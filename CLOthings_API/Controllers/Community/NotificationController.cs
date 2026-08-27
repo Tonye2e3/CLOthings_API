@@ -20,7 +20,7 @@ public class NotificationController : ControllerBase
     }
 
     // GET: api/Notification/user/5
-    // 查「這個使用者收到的所有通知」，依時間新到舊排序，最新的通知排最前面。
+    // 查「這個使用者最近的通知」，依時間新到舊排序，最新的通知排最前面。
     // 通知鈴鐺的下拉清單要用這支。
     //
     // 資安修正：原本網址上的 {userid} 是「想查誰的通知」，但沒有跟登入者本人比對——
@@ -28,6 +28,8 @@ public class NotificationController : ControllerBase
     // （誰追蹤/按讚/留言了對方），這是私人資訊，不該讓其他登入使用者查得到。
     // 改成不管網址上寫什麼 userid，一律只查登入者自己的通知，網址上的 {userid}
     // 保留只是為了不用改前端呼叫的網址格式，實際查詢一律用 Token 解出來的身分。
+    //
+    // 只取最新 20 則：這支是給「通知鈴鐺的下拉選單」用的，用途是快速瞄一眼最近的動態
     [HttpGet("user/{userid}")]
     public async Task<IEnumerable<NotificationDTO>> GetNotificationsByUser(int userid)
     {
@@ -40,6 +42,7 @@ public class NotificationController : ControllerBase
         return await _context.Notification
             .Where(n => n.UserId == currentUserId.Value)
             .OrderByDescending(n => n.CreatedDate)
+            .Take(20)
             .Select(n => new NotificationDTO
             {
                 NotificationId = n.NotificationId,
@@ -69,11 +72,12 @@ public class NotificationController : ControllerBase
     }
 
     // PUT: api/Notification/mark-all-read/5
-    // 把這個使用者「全部」通知都標記成已讀——點開通知鈴鐺清單的時候呼叫，
+    // 把「畫面上實際顯示出來的」那些通知標記成已讀——點開通知鈴鐺清單的時候呼叫，
     // 比一則一則個別標記已讀簡單，對使用者來說「打開清單＝看過了」也是合理的行為。
     //
-    // 資安修正：原本任何登入的人都能把別人的通知標記已讀（例如惡意讓對方看不到
-    // 「有人追蹤你」的提示）。改成一律只標記登入者自己的通知。
+    // 只標記最新 20 則：跟 GetNotificationsByUser 那支「只回傳最新 20 則」互相搭配——
+    // 如果未讀數超過 20，使用者只看得到最新 20 則，剩下沒顯示出來的那些不該被標記已讀
+    // （沒看到卻被當成看過了），所以這裡也只標記畫面上真正顯示出來的那 20 則。
     [HttpPut("mark-all-read/{userid}")]
     public async Task<ResultDTO> MarkAllAsRead(int userid)
     {
@@ -83,11 +87,14 @@ public class NotificationController : ControllerBase
             return new ResultDTO { OK = false, Code = 401 };
         }
 
-        var unread = await _context.Notification
-            .Where(n => n.UserId == currentUserId.Value && !n.IsRead)
+        var visibleUnread = await _context.Notification
+            .Where(n => n.UserId == currentUserId.Value)
+            .OrderByDescending(n => n.CreatedDate)
+            .Take(20)
+            .Where(n => !n.IsRead)
             .ToListAsync();
 
-        foreach (var n in unread)
+        foreach (var n in visibleUnread)
         {
             n.IsRead = true;
         }
