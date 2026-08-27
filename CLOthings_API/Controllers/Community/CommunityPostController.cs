@@ -16,6 +16,10 @@ public class CommunityPostController : ControllerBase
 
     // POST: api/CommunityPost/upload-images
     // 加 [Authorize]：上傳圖片是「發文」流程的一部分，沒登入不該能上傳檔案佔用你的硬碟空間。
+    //
+    // 資安修正：原本只有用 Guid 重新命名檔案（這點原本就做對了，避免了路徑穿越攻擊），
+    // 但完全沒檢查「上傳的實際是不是圖片」、也沒限制檔案大小——理論上可以上傳任何類型的檔案
+    // （例如偽裝成圖片的執行檔、超大檔案塞爆硬碟）。這裡補上副檔名白名單跟檔案大小上限。
     [HttpPost("upload-images")]
     [Authorize]
     public async Task<ActionResult<List<string>>> UploadImages(List<IFormFile> files)
@@ -23,6 +27,24 @@ public class CommunityPostController : ControllerBase
         if (files == null || files.Count == 0)
         {
             return BadRequest();
+        }
+
+        // AllowedExtensions：只接受這幾種常見的圖片格式，副檔名不在這份清單裡的一律拒絕。
+        // MaxFileSizeBytes：單一檔案最大 5MB，避免有人上傳超大檔案佔用硬碟空間。
+        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
+        const long maxFileSizeBytes = 5 * 1024 * 1024;
+
+        foreach (var file in files)
+        {
+            var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (!allowedExtensions.Contains(ext))
+            {
+                return BadRequest($"不支援的檔案格式：{file.FileName}，只接受 jpg、png、gif、webp 格式的圖片。");
+            }
+            if (file.Length > maxFileSizeBytes)
+            {
+                return BadRequest($"檔案太大：{file.FileName}，單一檔案不能超過 5MB。");
+            }
         }
 
         var folder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "images", "posts");
@@ -271,8 +293,68 @@ public class CommunityPostController : ControllerBase
             .ToListAsync();
     }
 
+    // GET: api/CommunityPost/by-product/5
+    // 查「有標記過這件商品的貼文」，依讚數（likesCount）由多到少排序，取前 3 篇——
+    // 給商城產品頁的「社群穿搭靈感」用，跟 similar/{communitypostid} 那支很像，
+    // 差別是那支的起點是「另一篇貼文」（找標記過同樣商品的其他貼文），
+    // 這支的起點直接是「商品 id」（商城產品頁本來就知道自己是哪個商品，
+    // 不需要先繞去問某篇貼文標記了什麼）。一樣不用登入。
+    [HttpGet("by-product/{productid}")]
+    public async Task<IEnumerable<CommunityPostDTO>> GetCommunityPostsByProduct(int productid)
+    {
+        var postIds = await _context.PostTaggedProduct
+            .Where(t => t.ProductId == productid)
+            .Select(t => t.CommunityPostId)
+            .Distinct()
+            .ToListAsync();
+
+        return await _context.CommunityPost
+            .Where(c => postIds.Contains(c.CommunityPostId))
+            .OrderByDescending(c => c.PostLike.Count())
+            .Take(3)
+            .Select(c => new CommunityPostDTO
+            {
+                CommunityPostId = c.CommunityPostId,
+                UserId = c.UserId,
+                Content = c.Content,
+                PostDate = c.PostDate,
+                Status = c.Status,
+                User = new UserSummaryDTO
+                {
+                    UserId = c.User.UserId,
+                    Name = c.User.Username,
+                    Avatar = c.User.UserProfile.Select(p => p.Avatar).FirstOrDefault()
+                },
+                Images = c.PostImage
+                    .OrderBy(i => i.SortOrder)
+                    .Select(i => new PostImageDTO
+                    {
+                        PostImageId = i.PostImageId,
+                        ImageFileName = i.ImageFileName,
+                        SortOrder = i.SortOrder
+                    }).ToList(),
+                LikesCount = c.PostLike.Count(),
+                CommentsCount = c.PostComment.Count(),
+                TaggedProducts = c.PostTaggedProduct
+                    .Select(t => new TaggedProductDTO
+                    {
+                        PostTaggedProductId = t.PostTaggedProductId,
+                        ProductId = t.ProductId,
+                        ProductRoute = t.ProductRoute,
+                        Name = t.Product.ProductName,
+                        Image = t.Product.ProductImg.Select(pi => pi.ProductImgFile).FirstOrDefault(),
+                        Price = t.Product.Price
+                    }).ToList()
+            })
+            .ToListAsync();
+    }
+
     // PUT: api/CommunityPost/5
     // 加 [Authorize]：改貼文內容／狀態／圖片／標籤是寫入動作，一定要登入才能做。
+    //
+    // 資安修正：原本只檢查「這篇貼文存不存在」，沒檢查「這篇貼文是不是登入者自己發的」——
+    // 任何登入的人只要知道 communitypostid，就能改別人的貼文內容。加上擁有權比對，
+    // 不是自己的貼文、也不是管理員的話直接擋掉（403）。
     [HttpPut("{communitypostid}")]
     [Authorize]
     public async Task<ResultDTO> PutCommunityPost(int? communitypostid, CommunityPostDTO communitypostDTO)
@@ -282,10 +364,20 @@ public class CommunityPostController : ControllerBase
             return new ResultDTO { OK = false, Code = 400 };
         }
 
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId == null)
+        {
+            return new ResultDTO { OK = false, Code = 401 };
+        }
+
         CommunityPost post = await _context.CommunityPost.FindAsync(communitypostDTO.CommunityPostId);
         if (post == null)
         {
             return new ResultDTO { OK = false, Code = 404 };
+        }
+        if (post.UserId != currentUserId.Value && !User.IsInRole("Admin") && !User.IsInRole("SuperAdmin"))
+        {
+            return new ResultDTO { OK = false, Code = 403 };
         }
         else
         {
@@ -348,14 +440,23 @@ public class CommunityPostController : ControllerBase
 
     // POST: api/CommunityPost
     // 加 [Authorize]：發文一定要登入。
+    //
+    // 資安修正：原本直接相信前端 request body 裡的 communitypostDTO.UserId，代表誰是發文者——
+    // 改成一律從登入用的 JWT Token 解出真正的身分，不然任何登入的人都能冒充別人的 userId 發文。
     [HttpPost]
     [Authorize]
     public async Task<ResultDTO> PostCommunityPost(CommunityPostDTO communitypostDTO)
     {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId == null)
+        {
+            return new ResultDTO { OK = false, Code = 401 };
+        }
+
         CommunityPost post = new CommunityPost
         {
             CommunityPostId = 0,
-            UserId = communitypostDTO.UserId,
+            UserId = currentUserId.Value,
             Content = communitypostDTO.Content,
             PostDate = DateTimeOffset.Now,
             Status = communitypostDTO.Status
@@ -400,14 +501,28 @@ public class CommunityPostController : ControllerBase
 
     // DELETE: api/CommunityPost/5
     // 加 [Authorize]：刪貼文一定要登入。
+    //
+    // 資安修正：原本只檢查「這篇貼文存不存在」，沒檢查「是不是自己的貼文」——
+    // 任何登入的人都能刪除別人的貼文。加上擁有權比對，管理員可以照常從後台
+    // （AdminCommunityPostListView.vue）刪除任何人的貼文，一般使用者只能刪自己的。
     [HttpDelete("{communitypostid}")]
     [Authorize]
     public async Task<ResultDTO> DeleteCommunityPost(int? communitypostid)
     {
+        var currentUserId = GetCurrentUserId();
+        if (currentUserId == null)
+        {
+            return new ResultDTO { OK = false, Code = 401 };
+        }
+
         var post = await _context.CommunityPost.FindAsync(communitypostid);
         if (post == null)
         {
             return new ResultDTO { OK = false, Code = 404 };
+        }
+        if (post.UserId != currentUserId.Value && !User.IsInRole("Admin") && !User.IsInRole("SuperAdmin"))
+        {
+            return new ResultDTO { OK = false, Code = 403 };
         }
         try
         {
@@ -419,5 +534,13 @@ public class CommunityPostController : ControllerBase
             return new ResultDTO { OK = false, Code = 500 };
         }
         return new ResultDTO { OK = true, Code = 204 };
+    }
+
+    // GetCurrentUserId：跟 ChatController.cs 是同一套寫法，從登入用的 JWT Token 裡取出 userId，
+    // 不相信前端自己送來的任何身分欄位。
+    private int? GetCurrentUserId()
+    {
+        var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        return int.TryParse(userIdValue, out var userId) ? userId : null;
     }
 }

@@ -150,5 +150,28 @@ namespace CLOthings_API.Controllers.Shop
             if (orderdetail == null) return NotFound();
             return Ok(orderdetail);
         }
+
+        // PUT api/order/{id}/complete —— 確認收貨，訂單變已完成
+        [HttpPut("{id}/complete")]
+        public async Task<IActionResult> CompleteOrder(int id)
+        {
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
+
+            var order = await _context.Order
+                .FirstOrDefaultAsync(o => o.OrderId == id && o.UserId == userId);
+
+            if (order == null) return NotFound(new { message = "找不到訂單" });
+
+            // 只有「待出貨」能確認收貨
+            if (order.Status != "待出貨")
+            {
+                return BadRequest(new { message = "此訂單目前狀態無法確認收貨" });
+            }
+
+            order.Status = "已完成";
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "已確認收貨" });
+        }
     }
 }

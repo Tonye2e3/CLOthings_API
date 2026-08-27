@@ -15,13 +15,17 @@ public partial class UserOAuth
 
     public string ProviderUserId { get; set; }
 
+    public string Email { get; set; }
+
+    public DateTimeOffset? CreatedAt { get; set; }
+
     public DateTimeOffset? UpdatedAt { get; set; }
 
     public string AccessToken { get; set; }
 
     public string RefreshToken { get; set; }
 
-    public DateTime? ExpiresAt { get; set; }
+    public DateTimeOffset? ExpiresAt { get; set; }
 
     public virtual User User { get; set; }
 }

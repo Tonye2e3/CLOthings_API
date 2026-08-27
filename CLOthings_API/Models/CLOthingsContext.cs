@@ -19,7 +19,6 @@ public partial class CLOthingsContext : DbContext
 
     public virtual DbSet<ChatMessageImage> ChatMessageImage { get; set; }
 
-
     public virtual DbSet<CommunityFavorite> CommunityFavorite { get; set; }
 
     public virtual DbSet<CommunityPost> CommunityPost { get; set; }
@@ -58,6 +57,8 @@ public partial class CLOthingsContext : DbContext
 
     public virtual DbSet<Invoice> Invoice { get; set; }
 
+    public virtual DbSet<Notification> Notification { get; set; }
+
     public virtual DbSet<Order> Order { get; set; }
 
     public virtual DbSet<OrderDetail> OrderDetail { get; set; }
@@ -71,6 +72,8 @@ public partial class CLOthingsContext : DbContext
     public virtual DbSet<PostLike> PostLike { get; set; }
 
     public virtual DbSet<PostShortUrl> PostShortUrl { get; set; }
+
+    public virtual DbSet<PostReport> PostReport { get; set; }
 
     public virtual DbSet<PostTaggedProduct> PostTaggedProduct { get; set; }
 
@@ -102,6 +105,8 @@ public partial class CLOthingsContext : DbContext
 
     public virtual DbSet<UserOAuth> UserOAuth { get; set; }
 
+    public virtual DbSet<UserPasswordResetToken> UserPasswordResetToken { get; set; }
+
     public virtual DbSet<UserProfile> UserProfile { get; set; }
 
     public virtual DbSet<UserRefreshToken> UserRefreshToken { get; set; }
@@ -118,61 +123,6 @@ public partial class CLOthingsContext : DbContext
             entity.HasOne(d => d.User).WithMany(p => p.Cart)
                 .HasForeignKey(d => d.UserId)
                 .HasConstraintName("FK_Cart_User");
-        });
-
-        modelBuilder.Entity<ChatMessage>(entity =>
-        {
-            entity.HasKey(e => e.ChatMessageId).HasName("PK__ChatMess__9AB61035599F12DE");
-
-            entity.HasIndex(e => new { e.ReceiverId, e.SenderId }, "IX_ChatMessage_ReceiverId_SenderId");
-
-            entity.HasIndex(e => new { e.SenderId, e.ReceiverId }, "IX_ChatMessage_SenderId_ReceiverId");
-
-            entity.Property(e => e.Content).HasMaxLength(1000);
-            entity.Property(e => e.ImagePath).HasMaxLength(255);
-            entity.Property(e => e.SentAt).HasDefaultValueSql("(sysdatetimeoffset())");
-
-            entity.HasOne(d => d.Receiver).WithMany(p => p.ChatMessageReceiver)
-                .HasForeignKey(d => d.ReceiverId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK_ChatMessage_Receiver");
-
-            entity.HasOne(d => d.Sender).WithMany(p => p.ChatMessageSender)
-                .HasForeignKey(d => d.SenderId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK_ChatMessage_Sender");
-        });
-
-        modelBuilder.Entity<ChatMessage>(entity =>
-        {
-            entity.HasKey(e => e.ChatMessageId);
-
-            entity.Property(e => e.Content).HasMaxLength(1000);
-            entity.Property(e => e.ImagePath).HasMaxLength(255);
-            entity.Property(e => e.SentAt).HasDefaultValueSql("(sysdatetimeoffset())");
-            entity.Property(e => e.IsRead).HasDefaultValue(false);
-
-            entity.HasOne(d => d.Sender).WithMany()
-                .HasForeignKey(d => d.SenderId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK_ChatMessage_Sender");
-
-            entity.HasOne(d => d.Receiver).WithMany()
-                .HasForeignKey(d => d.ReceiverId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK_ChatMessage_Receiver");
-        });
-
-        modelBuilder.Entity<ChatMessageImage>(entity =>
-        {
-            entity.HasKey(e => e.ChatMessageImageId);
-
-            entity.Property(e => e.ImagePath).HasMaxLength(255).IsRequired();
-
-            entity.HasOne(d => d.ChatMessage).WithMany(p => p.ChatMessageImage)
-                .HasForeignKey(d => d.ChatMessageId)
-                .OnDelete(DeleteBehavior.Cascade)
-                .HasConstraintName("FK_ChatMessageImage_ChatMessage");
         });
 
         modelBuilder.Entity<ChatMessage>(entity =>
@@ -279,6 +229,7 @@ public partial class CLOthingsContext : DbContext
 
             entity.HasOne(d => d.Order).WithMany(p => p.CustomerService)
                 .HasForeignKey(d => d.OrderId)
+                .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("FK_CustomerService_Order");
         });
 
@@ -544,6 +495,31 @@ public partial class CLOthingsContext : DbContext
                 .HasConstraintName("FK_Invoice_Order");
         });
 
+        modelBuilder.Entity<Notification>(entity =>
+        {
+            entity.HasKey(e => e.NotificationId);
+
+            entity.Property(e => e.Type).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.CreatedDate).HasDefaultValueSql("(sysdatetimeoffset())");
+            entity.Property(e => e.IsRead).HasDefaultValue(false);
+
+            entity.HasOne(d => d.User).WithMany()
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_Notification_User");
+
+            entity.HasOne(d => d.FromUser).WithMany()
+                .HasForeignKey(d => d.FromUserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_Notification_FromUser");
+
+            entity.HasOne(d => d.CommunityPost).WithMany()
+                .HasForeignKey(d => d.CommunityPostId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_Notification_CommunityPost");
+        });
+
         modelBuilder.Entity<Order>(entity =>
         {
             entity.Property(e => e.Freight).HasColumnType("decimal(10, 2)");
@@ -688,6 +664,26 @@ public partial class CLOthingsContext : DbContext
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_PostShortUrl_CommunityPost");
         });
+
+        modelBuilder.Entity<PostReport>(entity =>
+        {
+            entity.HasKey(e => e.PostReportId);
+
+            entity.HasIndex(e => new { e.CommunityPostId, e.ReporterId }, "UQ_PostReport_Post_Reporter").IsUnique();
+
+            entity.Property(e => e.Reason).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.CreatedDate).HasDefaultValueSql("(sysdatetimeoffset())");
+
+            entity.HasOne(d => d.CommunityPost).WithMany()
+                .HasForeignKey(d => d.CommunityPostId)
+                .HasConstraintName("FK_PostReport_CommunityPost");
+
+            entity.HasOne(d => d.Reporter).WithMany()
+                .HasForeignKey(d => d.ReporterId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_PostReport_Reporter");
+        });
+
 
         modelBuilder.Entity<PostTaggedProduct>(entity =>
         {
@@ -862,11 +858,9 @@ public partial class CLOthingsContext : DbContext
                 .HasMaxLength(255)
                 .IsUnicode(false);
             entity.Property(e => e.Password)
-                .IsRequired()
                 .HasMaxLength(1000)
                 .IsUnicode(false);
             entity.Property(e => e.Phone)
-                .IsRequired()
                 .HasMaxLength(50)
                 .IsUnicode(false);
             entity.Property(e => e.TwoFactorEnabled).HasDefaultValue(false, "DF_User_TwoFactorEnabled");
@@ -913,12 +907,18 @@ public partial class CLOthingsContext : DbContext
 
         modelBuilder.Entity<UserOAuth>(entity =>
         {
+            entity.HasIndex(e => new { e.Provider, e.ProviderUserId }, "UQ_UserOAuth_Provider_ProviderUserId").IsUnique();
+
+            entity.HasIndex(e => new { e.UserId, e.Provider }, "UQ_UserOAuth_UserId_Provider").IsUnique();
+
             entity.Property(e => e.AccessToken)
                 .HasMaxLength(255)
                 .IsUnicode(false);
-            entity.Property(e => e.ExpiresAt).HasColumnType("datetime");
-            entity.Property(e => e.Provider)
+            entity.Property(e => e.Email)
                 .HasMaxLength(255)
+                .IsUnicode(false);
+            entity.Property(e => e.Provider)
+                .HasMaxLength(50)
                 .IsUnicode(false);
             entity.Property(e => e.ProviderUserId)
                 .HasMaxLength(255)
@@ -930,7 +930,24 @@ public partial class CLOthingsContext : DbContext
 
             entity.HasOne(d => d.User).WithMany(p => p.UserOAuth)
                 .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_UserOAuth_User");
+        });
+
+        modelBuilder.Entity<UserPasswordResetToken>(entity =>
+        {
+            entity.HasKey(e => e.UserPasswordResetTokenId).HasName("PK__UserPass__2B5909C19F933AF3");
+
+            entity.HasIndex(e => e.TokenHash, "IX_UserPasswordResetToken_TokenHash").IsUnique();
+
+            entity.Property(e => e.TokenHash)
+                .IsRequired()
+                .HasMaxLength(100)
+                .IsUnicode(false);
+
+            entity.HasOne(d => d.User).WithMany(p => p.UserPasswordResetToken)
+                .HasForeignKey(d => d.UserId)
+                .HasConstraintName("FK_UserPasswordResetToken_User");
         });
 
         modelBuilder.Entity<UserProfile>(entity =>

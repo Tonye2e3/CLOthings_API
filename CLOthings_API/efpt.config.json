@@ -195,6 +195,10 @@
          "ObjectType": 0
       },
       {
+         "Name": "[dbo].[UserPasswordResetToken]",
+         "ObjectType": 0
+      },
+      {
          "Name": "[dbo].[UserProfile]",
          "ObjectType": 0
       },
