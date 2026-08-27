@@ -130,7 +130,10 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowFrontend",
         policy =>
         {
-            policy.WithOrigins("http://localhost:5173") // 前端網址
+            policy.WithOrigins(
+                "http://localhost:5173",
+                "https://victorious-moss-045aad400.7.azurestaticapps.net"
+                ) // 前端網址
                   .AllowAnyHeader()
                   .AllowAnyMethod()
                   .AllowCredentials();
