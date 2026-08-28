@@ -17,11 +17,15 @@ public partial class CommunityPost
 
     public string Status { get; set; }
 
+    public virtual ICollection<Notification> Notification { get; set; } = new List<Notification>();
+
     public virtual ICollection<PostComment> PostComment { get; set; } = new List<PostComment>();
 
     public virtual ICollection<PostImage> PostImage { get; set; } = new List<PostImage>();
 
     public virtual ICollection<PostLike> PostLike { get; set; } = new List<PostLike>();
+
+    public virtual ICollection<PostReport> PostReport { get; set; } = new List<PostReport>();
 
     public virtual PostShortUrl PostShortUrl { get; set; }
 

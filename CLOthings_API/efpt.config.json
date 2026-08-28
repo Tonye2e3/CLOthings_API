@@ -107,6 +107,10 @@
          "ObjectType": 0
       },
       {
+         "Name": "[dbo].[Notification]",
+         "ObjectType": 0
+      },
+      {
          "Name": "[dbo].[Order]",
          "ObjectType": 0
       },
@@ -128,6 +132,10 @@
       },
       {
          "Name": "[dbo].[PostLike]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[PostReport]",
          "ObjectType": 0
       },
       {
