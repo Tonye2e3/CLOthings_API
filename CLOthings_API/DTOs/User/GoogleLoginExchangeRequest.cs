@@ -1,7 +1,10 @@
-﻿namespace CLOthings_API.DTO.User
+﻿using System.ComponentModel.DataAnnotations;
+
+namespace CLOthings_API.DTO.User
 {
     public class GoogleLoginExchangeRequest
     {
-        public string Ticket { get; set; } = null!;
+        [Required(ErrorMessage = "登入 Ticket 不能為空")]
+        public string Ticket { get; set; } = string.Empty;
     }
 }
