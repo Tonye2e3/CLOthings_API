@@ -11,18 +11,18 @@ using System.Security.Claims;
 
 namespace CLOthings_API.Controllers
 {
-    // 🟢【新增】
+
     [Route("api/User/google")]
     [ApiController]
     public class GoogleOAuthController : ControllerBase
     {
-        // 🟢【新增】
+
         private readonly CLOthingsContext _context;
         private readonly IMemoryCache _cache;
         private readonly AuthTokenService _authTokenService;
         private readonly IConfiguration _configuration;
 
-        // 🟢【新增】
+
         public GoogleOAuthController(CLOthingsContext context, IMemoryCache cache, AuthTokenService authTokenService, IConfiguration configuration)
         {
             _context = context;
