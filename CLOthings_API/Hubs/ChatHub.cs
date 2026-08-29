@@ -2,6 +2,7 @@
 using System.Linq;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 using CLOthings_API.Models;
 
 namespace CLOthings_API.Hubs;
@@ -72,6 +73,41 @@ public class ChatHub : Hub
 
         _context.ChatMessage.Add(message);
         await _context.SaveChangesAsync();
+
+        // 訊息通知：跟按讚／留言／追蹤一樣，順便在 Notification 表建一筆，
+        // 讓通知鈴鐺也看得到「有人傳訊息給你」，不用特地打開聊天室才知道。
+        // 排除自己傳給自己（理論上前端不會讓使用者這樣做，這裡只是防呆）。
+        //
+        // 防洗版：如果接收方已經有一則「還沒讀」的、來自同一個人的訊息通知，
+        // 就不要一直疊加新的一筆——不然對方傳 10 則訊息，通知清單就會多出 10 行
+        // 一模一樣的「OO 傳了訊息給你」。改成把那一筆的時間戳記更新成最新的就好，
+        // 對接收方來說意義等同「這個人又傳了新訊息過來」，一行就夠了。
+        if (senderId != request.ReceiverId)
+        {
+            var existingUnread = await _context.Notification.FirstOrDefaultAsync(n =>
+                n.Type == "message" &&
+                n.UserId == request.ReceiverId &&
+                n.FromUserId == senderId &&
+                !n.IsRead);
+
+            if (existingUnread != null)
+            {
+                existingUnread.CreatedDate = DateTimeOffset.Now;
+            }
+            else
+            {
+                _context.Notification.Add(new Notification
+                {
+                    UserId = request.ReceiverId,
+                    FromUserId = senderId,
+                    Type = "message",
+                    CommunityPostId = null,
+                    CreatedDate = DateTimeOffset.Now,
+                    IsRead = false
+                });
+            }
+            await _context.SaveChangesAsync();
+        }
 
         var dto = new ChatMessageDTO
         {

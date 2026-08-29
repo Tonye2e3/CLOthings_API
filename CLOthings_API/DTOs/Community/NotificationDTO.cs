@@ -5,7 +5,7 @@
 public class NotificationDTO
 {
     public int NotificationId { get; set; }
-    public string Type { get; set; } // 'follow' / 'like' / 'comment'
+    public string Type { get; set; } // 'follow' / 'like' / 'comment' / 'message'
     public int FromUserId { get; set; }
     public string FromUsername { get; set; }
     public string? FromAvatar { get; set; }
