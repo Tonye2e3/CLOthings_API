@@ -71,9 +71,9 @@ public partial class CLOthingsContext : DbContext
 
     public virtual DbSet<PostLike> PostLike { get; set; }
 
-    public virtual DbSet<PostShortUrl> PostShortUrl { get; set; }
-
     public virtual DbSet<PostReport> PostReport { get; set; }
+
+    public virtual DbSet<PostShortUrl> PostShortUrl { get; set; }
 
     public virtual DbSet<PostTaggedProduct> PostTaggedProduct { get; set; }
 
@@ -497,27 +497,28 @@ public partial class CLOthingsContext : DbContext
 
         modelBuilder.Entity<Notification>(entity =>
         {
-            entity.HasKey(e => e.NotificationId);
+            entity.HasKey(e => e.NotificationId).HasName("PK__Notifica__20CF2E12C9621995");
 
-            entity.Property(e => e.Type).HasMaxLength(20).IsRequired();
+            entity.HasIndex(e => new { e.UserId, e.CreatedDate }, "IX_Notification_UserId_CreatedDate").IsDescending(false, true);
+
             entity.Property(e => e.CreatedDate).HasDefaultValueSql("(sysdatetimeoffset())");
-            entity.Property(e => e.IsRead).HasDefaultValue(false);
+            entity.Property(e => e.Type)
+                .IsRequired()
+                .HasMaxLength(20);
 
-            entity.HasOne(d => d.User).WithMany()
-                .HasForeignKey(d => d.UserId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK_Notification_User");
+            entity.HasOne(d => d.CommunityPost).WithMany(p => p.Notification)
+                .HasForeignKey(d => d.CommunityPostId)
+                .HasConstraintName("FK_Notification_CommunityPost");
 
-            entity.HasOne(d => d.FromUser).WithMany()
+            entity.HasOne(d => d.FromUser).WithMany(p => p.NotificationFromUser)
                 .HasForeignKey(d => d.FromUserId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_Notification_FromUser");
 
-            entity.HasOne(d => d.CommunityPost).WithMany()
-                .HasForeignKey(d => d.CommunityPostId)
-                .IsRequired(false)
+            entity.HasOne(d => d.User).WithMany(p => p.NotificationUser)
+                .HasForeignKey(d => d.UserId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK_Notification_CommunityPost");
+                .HasConstraintName("FK_Notification_User");
         });
 
         modelBuilder.Entity<Order>(entity =>
@@ -645,6 +646,28 @@ public partial class CLOthingsContext : DbContext
                 .HasConstraintName("FK_PostLike_User");
         });
 
+        modelBuilder.Entity<PostReport>(entity =>
+        {
+            entity.HasKey(e => e.PostReportId).HasName("PK__PostRepo__D6F03B0A58571CC3");
+
+            entity.HasIndex(e => new { e.CommunityPostId, e.ReporterId }, "UQ_PostReport_Post_Reporter").IsUnique();
+
+            entity.Property(e => e.CreatedDate).HasDefaultValueSql("(sysdatetimeoffset())");
+            entity.Property(e => e.Reason)
+                .IsRequired()
+                .HasMaxLength(200);
+
+            entity.HasOne(d => d.CommunityPost).WithMany(p => p.PostReport)
+                .HasForeignKey(d => d.CommunityPostId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_PostReport_CommunityPost");
+
+            entity.HasOne(d => d.Reporter).WithMany(p => p.PostReport)
+                .HasForeignKey(d => d.ReporterId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_PostReport_Reporter");
+        });
+
         modelBuilder.Entity<PostShortUrl>(entity =>
         {
             entity.HasKey(e => e.PostShortUrlId).HasName("PK__PostShor__EBFDF692E99A53FC");
@@ -664,26 +687,6 @@ public partial class CLOthingsContext : DbContext
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_PostShortUrl_CommunityPost");
         });
-
-        modelBuilder.Entity<PostReport>(entity =>
-        {
-            entity.HasKey(e => e.PostReportId);
-
-            entity.HasIndex(e => new { e.CommunityPostId, e.ReporterId }, "UQ_PostReport_Post_Reporter").IsUnique();
-
-            entity.Property(e => e.Reason).HasMaxLength(200).IsRequired();
-            entity.Property(e => e.CreatedDate).HasDefaultValueSql("(sysdatetimeoffset())");
-
-            entity.HasOne(d => d.CommunityPost).WithMany()
-                .HasForeignKey(d => d.CommunityPostId)
-                .HasConstraintName("FK_PostReport_CommunityPost");
-
-            entity.HasOne(d => d.Reporter).WithMany()
-                .HasForeignKey(d => d.ReporterId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK_PostReport_Reporter");
-        });
-
 
         modelBuilder.Entity<PostTaggedProduct>(entity =>
         {

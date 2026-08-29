@@ -505,6 +505,16 @@ public class CommunityPostController : ControllerBase
     // 資安修正：原本只檢查「這篇貼文存不存在」，沒檢查「是不是自己的貼文」——
     // 任何登入的人都能刪除別人的貼文。加上擁有權比對，管理員可以照常從後台
     // （AdminCommunityPostListView.vue）刪除任何人的貼文，一般使用者只能刪自己的。
+    //
+    // 修正：原本直接 Remove(post) 就結束，但這篇貼文底下如果還有留言、按讚、標記商品、
+    // 收藏、短網址、檢舉這些關聯資料，資料庫的外鍵限制（DeleteBehavior.ClientSetNull，
+    // 對應到 DB 是 ON DELETE NO ACTION）會擋下這次刪除，SaveChangesAsync 丟出
+    // DbUpdateException，被下面的 catch 接住、老實回傳 500——但前端目前沒檢查這個
+    // 回傳結果，所以使用者感覺起來像「按了沒反應、貼文卻還在」。這裡改成刪除貼文本體
+    // 之前，先把所有指著這篇貼文的關聯資料都清掉，讓刪除真的能成功。
+    // Notification.CommunityPostId 是可為 null 的欄位（跟其他表不同，這篇貼文的通知
+    // 不一定只跟這篇貼文有關），所以這裡不是刪掉整筆通知，而是把它指向的貼文編號設回
+    // null，通知本身還在（「OO 讚了你的貼文」還看得到），只是不能再點進去看那篇貼文。
     [HttpDelete("{communitypostid}")]
     [Authorize]
     public async Task<ResultDTO> DeleteCommunityPost(int? communitypostid)
@@ -526,6 +536,22 @@ public class CommunityPostController : ControllerBase
         }
         try
         {
+            _context.PostImage.RemoveRange(_context.PostImage.Where(i => i.CommunityPostId == communitypostid));
+            _context.PostComment.RemoveRange(_context.PostComment.Where(c => c.CommunityPostId == communitypostid));
+            _context.PostLike.RemoveRange(_context.PostLike.Where(l => l.CommunityPostId == communitypostid));
+            _context.PostTaggedProduct.RemoveRange(_context.PostTaggedProduct.Where(t => t.CommunityPostId == communitypostid));
+            _context.CommunityFavorite.RemoveRange(_context.CommunityFavorite.Where(f => f.CommunityPostId == communitypostid));
+            _context.PostShortUrl.RemoveRange(_context.PostShortUrl.Where(s => s.CommunityPostId == communitypostid));
+            _context.PostReport.RemoveRange(_context.PostReport.Where(r => r.CommunityPostId == communitypostid));
+
+            var relatedNotifications = await _context.Notification
+                .Where(n => n.CommunityPostId == communitypostid)
+                .ToListAsync();
+            foreach (var n in relatedNotifications)
+            {
+                n.CommunityPostId = null;
+            }
+
             _context.CommunityPost.Remove(post);
             await _context.SaveChangesAsync();
         }

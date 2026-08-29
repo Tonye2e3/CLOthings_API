@@ -33,6 +33,8 @@ public partial class User
 
     public string CountryCode { get; set; }
 
+    public bool EmailVerified { get; set; }
+
     public virtual ICollection<Cart> Cart { get; set; } = new List<Cart>();
 
     public virtual ICollection<ChatMessage> ChatMessageReceiver { get; set; } = new List<ChatMessage>();
@@ -53,6 +55,10 @@ public partial class User
 
     public virtual ICollection<GroupPaymentMethod> GroupPaymentMethod { get; set; } = new List<GroupPaymentMethod>();
 
+    public virtual ICollection<Notification> NotificationFromUser { get; set; } = new List<Notification>();
+
+    public virtual ICollection<Notification> NotificationUser { get; set; } = new List<Notification>();
+
     public virtual ICollection<Order> Order { get; set; } = new List<Order>();
 
     public virtual ICollection<PaymentMethod> PaymentMethod { get; set; } = new List<PaymentMethod>();
@@ -60,6 +66,8 @@ public partial class User
     public virtual ICollection<PostComment> PostComment { get; set; } = new List<PostComment>();
 
     public virtual ICollection<PostLike> PostLike { get; set; } = new List<PostLike>();
+
+    public virtual ICollection<PostReport> PostReport { get; set; } = new List<PostReport>();
 
     public virtual ICollection<ProductReturn> ProductReturn { get; set; } = new List<ProductReturn>();
 

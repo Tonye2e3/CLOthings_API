@@ -21,11 +21,5 @@ public partial class GroupCustomerService
 
     public string Title { get; set; }
 
-    // 管理端回覆的內容，還沒回覆的話是 null
-    public string ReplyContent { get; set; }
-
-    // 回覆的時間，還沒回覆的話是 null
-    public DateTimeOffset? RepliedAt { get; set; }
-
     public virtual GroupOrder GroupOrder { get; set; }
 }
