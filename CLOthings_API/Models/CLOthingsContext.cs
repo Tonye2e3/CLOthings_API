@@ -101,6 +101,8 @@ public partial class CLOthingsContext : DbContext
 
     public virtual DbSet<UserAddress> UserAddress { get; set; }
 
+    public virtual DbSet<UserEmailVerificationToken> UserEmailVerificationToken { get; set; }
+
     public virtual DbSet<UserFollow> UserFollow { get; set; }
 
     public virtual DbSet<UserOAuth> UserOAuth { get; set; }
@@ -889,6 +891,17 @@ public partial class CLOthingsContext : DbContext
             entity.HasOne(d => d.User).WithMany(p => p.UserAddress)
                 .HasForeignKey(d => d.UserId)
                 .HasConstraintName("FK_UserAddress_User");
+        });
+
+        modelBuilder.Entity<UserEmailVerificationToken>(entity =>
+        {
+            entity.Property(e => e.TokenHash)
+                .IsRequired()
+                .HasMaxLength(255);
+
+            entity.HasOne(d => d.User).WithMany(p => p.UserEmailVerificationToken)
+                .HasForeignKey(d => d.UserId)
+                .HasConstraintName("FK_UserEmailVerificationToken_User");
         });
 
         modelBuilder.Entity<UserFollow>(entity =>

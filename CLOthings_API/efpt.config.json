@@ -195,6 +195,10 @@
          "ObjectType": 0
       },
       {
+         "Name": "[dbo].[UserEmailVerificationToken]",
+         "ObjectType": 0
+      },
+      {
          "Name": "[dbo].[UserFollow]",
          "ObjectType": 0
       },
