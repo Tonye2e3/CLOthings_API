@@ -1,7 +1,7 @@
-using CLOthings.Enums;
 using CLOthings_API.DTO.User;
 using CLOthings_API.DTOs;
 using CLOthings_API.Models;
+using CLOthings_API.Services.Users;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -16,12 +16,22 @@ public class UserController : ControllerBase
 {
     private readonly CLOthingsContext _context;
     private readonly IPasswordHasher<User> _passwordHasher;
+    private readonly EmailVerificationService _emailVerificationService;
+    private readonly AuthTokenService _authTokenService;
+    private readonly IConfiguration _configuration;
 
-    public UserController(CLOthingsContext context, IPasswordHasher<User> passwordHasher)
+    public UserController(
+        CLOthingsContext context,
+        IPasswordHasher<User> passwordHasher,
+        EmailVerificationService emailVerificationService,
+        AuthTokenService authTokenService,
+        IConfiguration configuration)
     {
         _context = context;
         _passwordHasher = passwordHasher;
-
+        _emailVerificationService = emailVerificationService;
+        _authTokenService = authTokenService;
+        _configuration = configuration;
     }
 
     // GET: api/User
@@ -90,86 +100,6 @@ public class UserController : ControllerBase
         return NoContent();
     }
 
-    // POST: api/User
-    // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
-    [HttpPost]
-    [AllowAnonymous]
-    public async Task<ActionResult> PostUser(RegisterDTO dto)
-    {
-        // 先檢查帳號是否已存在
-        var accountExists = await _context.User
-            .AnyAsync(u => u.Account == dto.Account);
-
-        if (accountExists)
-        {
-            return Conflict("帳號已存在");
-        }
-
-        // 🟢檢查 Email 是否已存在
-        var emailExists = await _context.User
-            .AnyAsync(u => u.Email == dto.Email);
-
-        if (emailExists)
-        {
-            return Conflict("Email 已存在");
-        }
-
-        // 建立新的 User
-        var user = new User
-        {
-            Username = dto.Username,
-            Account = dto.Account,
-            Email = dto.Email,
-            Phone = dto.Phone,
-
-            // 後端決定，不相信前端
-            UserType = (int)UserTypeEnum.User,
-            Status = (int)StatusEnum.Active,
-
-            CreatedAt = DateTimeOffset.UtcNow,
-            UpdatedAt = DateTimeOffset.UtcNow
-        };
-
-        // 密碼 Hash
-        user.Password = _passwordHasher.HashPassword(
-            user,
-            dto.Password
-        );
-
-        // 先建立 User
-        _context.User.Add(user);
-        await _context.SaveChangesAsync();
-
-        // 再建立空的 UserProfile
-        var profile = new UserProfile
-        {
-            UserId = user.UserId,
-
-            FirstName = null,
-            LastName = null,
-            Avatar = null,
-            Gender = null,
-            Birthday = null,
-            StyleTag = null,
-            Intro = null
-        };
-
-        _context.UserProfile.Add(profile);
-        await _context.SaveChangesAsync();
-
-        return CreatedAtAction(
-            nameof(GetUser),
-            new { userid = user.UserId },
-            new
-            {
-                userId = user.UserId,
-                username = user.Username,
-                account = user.Account,
-                email = user.Email,
-                phone = user.Phone
-            }
-        );
-    }
 
     // DELETE: api/User/5
     [HttpDelete("{userid}")]
@@ -223,13 +153,14 @@ public class UserController : ControllerBase
             username = user.Username,
             account = user.Account,
             email = user.Email,
+            emailVerified = user.EmailVerified,
             phone = user.Phone,
             countryCode = user.CountryCode,
             twoFactorEnabled = user.TwoFactorEnabled
         });
     }
 
-    // PUT: api/User/me
+    // PUT: api/User/me 會員修改資料
     [HttpPut("me")]
     public async Task<IActionResult> PutMe(UpdateUserDTO dto)
     {
@@ -250,16 +181,98 @@ public class UserController : ControllerBase
             return NotFound();
         }
 
-        // 3. 修改允許會員自己修改的欄位
+        // 🟢 記錄 Email 是否有變更
+        var emailChanged = !string.Equals(
+            user.Email,
+            dto.Email,
+            StringComparison.OrdinalIgnoreCase);
+
+        // Email 有修改時，先確認前端網址設定存在
+        string? frontendBaseUrl = null;
+
+        if (emailChanged)
+        {
+            frontendBaseUrl = _configuration["Frontend:BaseUrl"];
+
+            if (string.IsNullOrWhiteSpace(frontendBaseUrl))
+            {
+                return StatusCode(500, "Frontend BaseUrl 尚未設定");
+            }
+        }
+
+        // 🟢 Email 有變更時，先確認沒有被其他會員使用
+        if (emailChanged)
+        {
+            var emailExists = await _context.User
+                .AnyAsync(u =>
+                    u.UserId != userId &&
+                    u.Email == dto.Email);
+
+            if (emailExists)
+            {
+                return Conflict("此 Email 已被其他會員使用");
+            }
+        }
+        // 3. 允許會員自己修改的欄位
         user.Username = dto.Username;
-        user.Email = dto.Email;
+
+        if (emailChanged)
+        {
+            user.Email = dto.Email;
+
+            // 新 Email 必須重新驗證
+            user.EmailVerified = false;
+        }
+
         user.Phone = dto.Phone;
         user.CountryCode = dto.CountryCode;
-
-        // 4. 儲存到資料庫
         user.UpdatedAt = DateTimeOffset.UtcNow;
 
+        // 4. 如果 Email 有變更，建立新的 Email 驗證 Token
+        string? verificationToken = null;
+
+        if (emailChanged)
+        {
+            // 讓舊的未使用 Token 失效
+            var oldTokens = await _context.UserEmailVerificationToken
+                .Where(t => t.UserId == userId && t.UsedAt == null)
+                .ToListAsync();
+
+            foreach (var token in oldTokens)
+            {
+                token.UsedAt = DateTimeOffset.UtcNow;
+            }
+
+            // 產生新的 Token
+            verificationToken = _authTokenService.GenerateSecureToken();
+
+            var tokenHash = _authTokenService.HashToken(verificationToken);
+
+            var emailVerificationToken = new UserEmailVerificationToken
+            {
+                UserId = userId,
+                TokenHash = tokenHash,
+                CreatedAt = DateTimeOffset.UtcNow,
+                ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(30)
+            };
+
+            _context.UserEmailVerificationToken.Add(emailVerificationToken);
+        }
+
+        // 5. 儲存資料
         await _context.SaveChangesAsync();
+
+        // 6. Email 有修改才寄新的驗證信
+        if (emailChanged && verificationToken != null)
+        {
+            var verificationLink =
+                $"{frontendBaseUrl}/verify-email?token={Uri.EscapeDataString(verificationToken)}";
+
+            await _emailVerificationService.SendVerificationEmailAsync(
+                user.Email,
+                verificationLink
+            );
+        }
 
         return NoContent();
     }

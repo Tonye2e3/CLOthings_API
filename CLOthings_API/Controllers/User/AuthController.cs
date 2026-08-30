@@ -1,12 +1,13 @@
-﻿using CLOthings_API.DTO.User;
+﻿using CLOthings.Enums;
+using CLOthings_API.DTO.User;
+using CLOthings_API.DTOs;
 using CLOthings_API.Models;
 using CLOthings_API.Services.Users;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using System.Security.Cryptography;
-using System.Text;
+using System.Security.Claims;
 
 namespace CLOthings_API.Controllers
 {
@@ -18,20 +19,327 @@ namespace CLOthings_API.Controllers
         private readonly IConfiguration _configuration;
         private readonly IPasswordHasher<User> _passwordHasher;
         private readonly AuthTokenService _authTokenService;
-        private readonly UserEmailService _userEmailService;
+        private readonly ForgotEmailService _ForgetEmailService;
+        private readonly EmailVerificationService _emailVerificationService;
 
         public AuthController(
             CLOthingsContext context,
             IConfiguration configuration,
             IPasswordHasher<User> passwordHasher,
             AuthTokenService authTokenService,
-            UserEmailService userEmailService)
+            ForgotEmailService userEmailService,
+            EmailVerificationService emailVerificationService)
         {
             _context = context;
             _configuration = configuration;
             _passwordHasher = passwordHasher;
             _authTokenService = authTokenService;
-            _userEmailService = userEmailService;
+            _ForgetEmailService = userEmailService;
+            _emailVerificationService = emailVerificationService;
+        }
+
+        // POST: api/User 註冊
+        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
+        [HttpPost("register")]
+        [AllowAnonymous]
+        public async Task<ActionResult> RegsiterUser(RegisterDTO dto)
+        {
+            // 先檢查帳號是否已存在
+            var accountExists = await _context.User
+                .AnyAsync(u => u.Account == dto.Account);
+
+            if (accountExists)
+            {
+                return Conflict("帳號已存在");
+            }
+
+            // 檢查 Email 是否已存在
+            var emailExists = await _context.User
+                .AnyAsync(u => u.Email == dto.Email);
+
+            if (emailExists)
+            {
+                return Conflict("Email 已存在");
+            }
+
+            // 建立新的 User
+            var user = new User
+            {
+                Username = dto.Username,
+                Account = dto.Account,
+                Email = dto.Email,
+                Phone = dto.Phone,
+
+                UserType = (int)UserTypeEnum.User,
+                Status = (int)StatusEnum.Active,
+
+                // 🟢 新增：一般帳密註冊，Email 預設尚未驗證
+                EmailVerified = false,
+
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+
+            // 密碼 Hash
+            user.Password = _passwordHasher.HashPassword(
+                user,
+                dto.Password
+            );
+
+            // 先建立 User
+            _context.User.Add(user);
+            await _context.SaveChangesAsync();
+
+            // 再建立空的 UserProfile
+            var profile = new UserProfile
+            {
+                UserId = user.UserId,
+
+                FirstName = null,
+                LastName = null,
+                Avatar = null,
+                Gender = null,
+                Birthday = null,
+                StyleTag = null,
+                Intro = null
+            };
+
+            _context.UserProfile.Add(profile);
+
+            // 🟢 新增：產生 Email 驗證 Token
+            var verificationToken = _authTokenService.GenerateSecureToken();
+
+            // 🟢 新增：資料庫只存 Hash
+            var verificationTokenHash = _authTokenService.HashToken(verificationToken);
+
+            // 🟢 新增：建立 Email 驗證 Token 紀錄
+            var emailVerificationToken =
+                new UserEmailVerificationToken
+                {
+                    UserId = user.UserId,
+                    TokenHash = verificationTokenHash,
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(30),
+                    UsedAt = null
+                };
+
+            _context.UserEmailVerificationToken
+                .Add(emailVerificationToken);
+
+            // Profile + Token 一起儲存
+            await _context.SaveChangesAsync();
+
+            // 🟢 新增：取得前端網址
+            var frontendBaseUrl =
+                _configuration["Frontend:BaseUrl"];
+
+            if (string.IsNullOrWhiteSpace(frontendBaseUrl))
+            {
+                throw new InvalidOperationException(
+                    "Frontend:BaseUrl 尚未設定"
+                );
+            }
+
+            // 🟢 新增：建立 Email 驗證網址
+            var verificationLink =
+                $"{frontendBaseUrl.TrimEnd('/')}/verify-email?token={Uri.EscapeDataString(verificationToken)}";
+
+            // 🟢 新增：寄出驗證信
+            await _emailVerificationService
+                .SendVerificationEmailAsync(
+                    user.Email,
+                    verificationLink
+                );
+
+            return StatusCode(
+                StatusCodes.Status201Created,
+                new
+                {
+                    userId = user.UserId,
+                    username = user.Username,
+                    account = user.Account,
+                    email = user.Email,
+                    phone = user.Phone,
+                    emailVerified = user.EmailVerified,
+                    message = "註冊成功，驗證信已寄出"
+                }
+            );
+        }
+
+        // POST: api/User/verify-email
+        // Email 驗證
+        [HttpPost("verify-email")]
+        [AllowAnonymous]
+        public async Task<IActionResult> VerifyEmail(
+            VerifyEmailDTO dto)
+        {
+            // 1. 將前端傳來的原始 Token 做 Hash
+            var tokenHash =
+                _authTokenService.HashToken(dto.Token);
+
+            // 2. 找資料庫中的 Email 驗證 Token
+            var verificationToken =
+                await _context.UserEmailVerificationToken
+                    .Include(t => t.User)
+                    .FirstOrDefaultAsync(t =>
+                        t.TokenHash == tokenHash
+                    );
+
+            // 3. 找不到 Token
+            if (verificationToken == null)
+            {
+                return BadRequest("驗證連結無效");
+            }
+
+            // 4. Token 已經使用過
+            if (verificationToken.UsedAt != null)
+            {
+                return BadRequest("此驗證連結已使用");
+            }
+
+            // 5. Token 已過期
+            if (verificationToken.ExpiresAt <=
+                DateTimeOffset.UtcNow)
+            {
+                return BadRequest("驗證連結已過期");
+            }
+
+            // 6. 找不到對應會員
+            var user = verificationToken.User;
+
+            if (user == null)
+            {
+                return BadRequest("找不到會員資料");
+            }
+
+            // 7. Email 驗證成功
+            user.EmailVerified = true;
+
+            // Token 標記為已使用
+            verificationToken.UsedAt =
+                DateTimeOffset.UtcNow;
+
+            user.UpdatedAt =
+                DateTimeOffset.UtcNow;
+
+            // 8. 儲存
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                message = "Email 驗證成功",
+                emailVerified = true
+            });
+        }
+
+        // POST: api/User/resend-verification-email
+        // 重新寄送 Email 驗證信
+        [HttpPost("resend-verification-email")]
+        public async Task<IActionResult> ResendVerificationEmail()
+        {
+            // 1. 從 JWT 取得目前登入者 UserId
+            var userIdValue =
+                User.FindFirstValue(
+                    ClaimTypes.NameIdentifier
+                );
+
+            if (!int.TryParse(userIdValue, out var userId))
+            {
+                return Unauthorized();
+            }
+
+            // 2. 找目前登入會員
+            var user = await _context.User
+                .FirstOrDefaultAsync(u =>
+                    u.UserId == userId
+                );
+
+            if (user == null)
+            {
+                return NotFound();
+            }
+
+            // 3. 已經驗證過就不用再寄
+            if (user.EmailVerified)
+            {
+                return BadRequest(
+                    "此 Email 已完成驗證"
+                );
+            }
+
+            // 4. 讓之前尚未使用的 Token 全部失效
+            var oldTokens =
+                await _context.UserEmailVerificationToken
+                    .Where(t =>
+                        t.UserId == user.UserId &&
+                        t.UsedAt == null
+                    )
+                    .ToListAsync();
+
+            var now = DateTimeOffset.UtcNow;
+
+            foreach (var oldToken in oldTokens)
+            {
+                oldToken.UsedAt = now;
+            }
+
+            // 5. 產生新的驗證 Token
+            var verificationToken =
+                _authTokenService.GenerateSecureToken();
+
+            var verificationTokenHash =
+                _authTokenService.HashToken(
+                    verificationToken
+                );
+
+            // 6. 建立新的 Token 紀錄
+            var newToken =
+                new UserEmailVerificationToken
+                {
+                    UserId = user.UserId,
+
+                    TokenHash =
+                        verificationTokenHash,
+
+                    CreatedAt = now,
+
+                    ExpiresAt =
+                        now.AddMinutes(30),
+
+                    UsedAt = null
+                };
+
+            _context.UserEmailVerificationToken
+                .Add(newToken);
+
+            await _context.SaveChangesAsync();
+
+            // 7. 建立驗證網址
+            var frontendBaseUrl =
+                _configuration["Frontend:BaseUrl"];
+
+            if (string.IsNullOrWhiteSpace(
+                frontendBaseUrl))
+            {
+                throw new InvalidOperationException(
+                    "Frontend:BaseUrl 尚未設定"
+                );
+            }
+
+            var verificationLink =
+                $"{frontendBaseUrl.TrimEnd('/')}/verify-email?token={Uri.EscapeDataString(verificationToken)}";
+
+            // 8. 寄出 Email
+            await _emailVerificationService
+                .SendVerificationEmailAsync(
+                    user.Email,
+                    verificationLink
+                );
+
+            return Ok(new
+            {
+                message = "驗證信已重新寄出"
+            });
         }
 
         // POST: api/User/login
@@ -97,152 +405,73 @@ namespace CLOthings_API.Controllers
             });
         }
 
-
-        // 產生 Refresh Token
-        private string GenerateRefreshToken()
-        {
-            // 產生 64 bytes 的密碼學安全隨機資料
-            var randomBytes = RandomNumberGenerator.GetBytes(64);
-
-            // 轉成 Base64 字串，方便傳輸與儲存
-            return Convert.ToBase64String(randomBytes);
-        }
-
-        // 將 Refresh Token 做 SHA256 Hash
-        private string HashRefreshToken(string refreshToken)
-        {
-            // 將字串轉成 byte[]
-            var tokenBytes = Encoding.UTF8.GetBytes(refreshToken);
-
-            // SHA256 Hash
-            var hashBytes = SHA256.HashData(tokenBytes);
-
-            // 轉成 Base64 字串
-            return Convert.ToBase64String(hashBytes);
-        }
-
-        // POST: api/Auth/refresh
+        // POST: api/User/refresh
         [HttpPost("refresh")]
         [AllowAnonymous]
         public async Task<ActionResult> Refresh()
         {
             // 1. 從 HttpOnly Cookie 取得 Refresh Token
-            if (!Request.Cookies.TryGetValue("refreshToken", out var refreshToken))
+            if (!Request.Cookies.TryGetValue(
+                "refreshToken",
+                out var refreshToken))
             {
-                return Unauthorized("找不到 Refresh Token");
+                return Unauthorized(
+                    "找不到 Refresh Token"
+                );
             }
 
-            // 2. 把 Cookie 裡的原始 Refresh Token 做 Hash
-            var refreshTokenHash = HashRefreshToken(refreshToken);
+            // 2. 交給 AuthTokenService 驗證並 Rotation
+            var tokenResult =
+                await _authTokenService
+                    .RefreshTokenAsync(refreshToken);
 
-            // 3. 用 Hash 去資料庫找 Token
-            var storedToken = await _context.UserRefreshToken
-                .FirstOrDefaultAsync(t => t.TokenHash == refreshTokenHash);
-
-            if (storedToken == null)
+            if (tokenResult == null)
             {
-                return Unauthorized("Refresh Token 無效");
+                return Unauthorized(
+                    "Refresh Token 無效或已過期"
+                );
             }
 
-            // 4. 檢查是否已經被撤銷
-            if (storedToken.RevokedAt != null)
-            {
-                return Unauthorized("Refresh Token 已失效");
-            }
-
-            // 5. 檢查是否過期
-            if (storedToken.ExpiresAt <= DateTimeOffset.UtcNow)
-            {
-                return Unauthorized("Refresh Token 已過期");
-            }
-
-            // 6. 找到這顆 Refresh Token 所屬的 User
-            var user = await _context.User
-                .FirstOrDefaultAsync(u => u.UserId == storedToken.UserId);
-
-            if (user == null)
-            {
-                return Unauthorized("使用者不存在");
-            }
-
-            // 7. 產生新的 Access Token
-            var newAccessToken = _authTokenService.CreateAccessToken(user);
-
-            // 8. 產生新的 Refresh Token
-            var newRefreshToken = GenerateRefreshToken();
-
-            // 9. 新 Refresh Token 做 Hash
-            var newRefreshTokenHash = HashRefreshToken(newRefreshToken);
-
-            // 10. 舊 Refresh Token 設為撤銷
-            storedToken.RevokedAt = DateTimeOffset.UtcNow;
-            storedToken.ReplacedByTokenHash = newRefreshTokenHash;
-
-            // 11. 建立新的 Refresh Token 資料
-            var newStoredToken = new UserRefreshToken
-            {
-                UserId = user.UserId,
-                TokenHash = newRefreshTokenHash,
-                CreatedAt = DateTimeOffset.UtcNow,
-                ExpiresAt = DateTimeOffset.UtcNow.AddDays(7),
-                RevokedAt = null,
-                ReplacedByTokenHash = null
-            };
-
-            _context.UserRefreshToken.Add(newStoredToken);
-
-            // 12. 儲存資料庫
-            await _context.SaveChangesAsync();
-
-            // 13. 用新的 Refresh Token 取代 Cookie
+            // 3. 新 Refresh Token 寫回 HttpOnly Cookie
             Response.Cookies.Append(
                 "refreshToken",
-                newRefreshToken,
+                tokenResult.RefreshToken,
                 new CookieOptions
                 {
                     HttpOnly = true,
                     Secure = true,
                     SameSite = SameSiteMode.None,
-                    Expires = DateTimeOffset.UtcNow.AddDays(7)
+                    Expires =
+                        tokenResult.RefreshTokenExpiresAt
                 }
             );
 
-            // 14. 回傳新的 Access Token
+            // 4. 新 Access Token 回前端
             return Ok(new
             {
-                token = newAccessToken
+                token = tokenResult.AccessToken
             });
         }
 
 
-        // POST api/User/logout
+        // POST: api/User/logout
         [HttpPost("logout")]
         [AllowAnonymous]
         public async Task<IActionResult> Logout()
         {
-            // 從 HttpOnly Cookie 取得 Refresh Token
-            if (Request.Cookies.TryGetValue("refreshToken", out var refreshToken))
+            // 1. 如果 Cookie 裡有 Refresh Token
+            if (Request.Cookies.TryGetValue(
+                "refreshToken",
+                out var refreshToken))
             {
-                // 將 Refresh Token Hash
-                var refreshTokenHash = HashRefreshToken(refreshToken);
-
-                // 找資料庫裡對應的 Refresh Token
-                var storedToken = await _context.UserRefreshToken
-                    .FirstOrDefaultAsync(t =>
-                        t.TokenHash == refreshTokenHash &&
-                        t.RevokedAt == null);
-
-                // 如果找得到，就撤銷它
-                if (storedToken != null)
-                {
-                    storedToken.RevokedAt = DateTimeOffset.UtcNow;
-
-                    await _context.SaveChangesAsync();
-                }
+                // 2. 撤銷資料庫中的 Refresh Token
+                await _authTokenService
+                    .RevokeRefreshTokenAsync(
+                        refreshToken
+                    );
             }
 
-            // 不管資料庫有沒有找到 Token
-            // 都把瀏覽器的 refreshToken Cookie 刪掉
+            // 3. 刪除瀏覽器的 Refresh Token Cookie
             Response.Cookies.Delete(
                 "refreshToken",
                 new CookieOptions
@@ -253,30 +482,7 @@ namespace CLOthings_API.Controllers
                 }
             );
 
-            // 登出成功
             return NoContent();
-        }
-
-        // 忘記密碼重設
-        // ======================================================        
-        // 產生密碼重設 Token
-        private string GeneratePasswordResetToken()
-        {
-            // 產生 64 bytes 密碼學安全亂數
-            var randomBytes = RandomNumberGenerator.GetBytes(64);
-
-            // 轉成 Base64 字串
-            return Convert.ToBase64String(randomBytes);
-        }
-
-        // 將密碼重設 Token 做 SHA256 Hash
-        private string HashPasswordResetToken(string token)
-        {
-            var tokenBytes = Encoding.UTF8.GetBytes(token);
-
-            var hashBytes = SHA256.HashData(tokenBytes);
-
-            return Convert.ToBase64String(hashBytes);
         }
 
         // POST: api/User/forgot-password
@@ -298,11 +504,11 @@ namespace CLOthings_API.Controllers
             }
 
             // 3. 產生原始 Reset Token
-            var resetToken = GeneratePasswordResetToken();
+            var resetToken = _authTokenService.GenerateSecureToken();
 
             // 4. Token 做 SHA256 Hash
             var resetTokenHash =
-                HashPasswordResetToken(resetToken);
+                _authTokenService.HashToken(resetToken);
 
             // 5. 建立資料庫紀錄
             var passwordResetToken =
@@ -343,7 +549,7 @@ namespace CLOthings_API.Controllers
                 $"{frontendBaseUrl.TrimEnd('/')}/reset-password?token={Uri.EscapeDataString(resetToken)}";
 
             // 8. 寄送密碼重設 Email
-            await _userEmailService.SendPasswordResetEmailAsync(
+            await _ForgetEmailService.SendPasswordResetEmailAsync(
                 user.Email,
                 resetLink
             );
@@ -364,7 +570,7 @@ namespace CLOthings_API.Controllers
         {
             // 1. 將收到的原始 Token 做 Hash
             var tokenHash =
-                HashPasswordResetToken(dto.Token);
+                _authTokenService.HashToken(dto.Token);
 
             // 2. 用 Hash 找資料庫中的 Reset Token
             var storedToken =

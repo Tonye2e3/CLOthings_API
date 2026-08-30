@@ -26,19 +26,21 @@ builder.Services.AddSignalR();
 // ASP.NET Core Identity 的密碼雜湊服務（PasswordHasher<T>）
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 
-// 🟢 Token Service
-builder.Services.AddScoped<AuthTokenService>();
-
 // 呼叫 LINE Pay API 要用（GroupPaymentController 的 LINE Pay 那幾支端點）
 builder.Services.AddHttpClient();
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
+// Email 發送 service（EmailService.cs）
 builder.Services.AddScoped<EmailService>();
 
-// 忘記密碼
-builder.Services.AddScoped<UserEmailService>();
+// JWT 驗證用的服務 service（AuthTokenService.cs）
+builder.Services.AddScoped<AuthTokenService>();
+// Email 驗證 service（EmailVerificationService.cs）
+builder.Services.AddScoped<EmailVerificationService>();
+// 忘記密碼 Email 發送 service（ForgotEmailService.cs）
+builder.Services.AddScoped<ForgotEmailService>();
 
 builder.Services.AddDbContext<CLOthingsContext>(options =>
 {

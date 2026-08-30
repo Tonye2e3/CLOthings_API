@@ -75,6 +75,8 @@ public partial class User
 
     public virtual ICollection<UserAddress> UserAddress { get; set; } = new List<UserAddress>();
 
+    public virtual ICollection<UserEmailVerificationToken> UserEmailVerificationToken { get; set; } = new List<UserEmailVerificationToken>();
+
     public virtual ICollection<UserFollow> UserFollowFollower { get; set; } = new List<UserFollow>();
 
     public virtual ICollection<UserFollow> UserFollowFollowing { get; set; } = new List<UserFollow>();
