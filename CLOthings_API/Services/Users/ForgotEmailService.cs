@@ -1,10 +1,10 @@
 ﻿namespace CLOthings_API.Services.Users
 {
-    public class UserEmailService
+    public class ForgotEmailService
     {
         private readonly EmailService _emailService;
 
-        public UserEmailService(EmailService emailService)
+        public ForgotEmailService(EmailService emailService)
         {
             _emailService = emailService;
         }

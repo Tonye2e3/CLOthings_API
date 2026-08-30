@@ -14,8 +14,10 @@ namespace CLOthings_API.Services
 
         public async Task SendAsync(string toEmail, string subject, string body)
         {
-            var fromEmail = _config["Smtp:Email"];
-            var appPassword = _config["Smtp:AppPassword"];
+            var host = _config["Smtp:Host"] ?? throw new InvalidOperationException("Smtp:Host 尚未設定");
+            var port = _config.GetValue<int>("Smtp:Port");
+            var fromEmail = _config["Smtp:Email"] ?? throw new InvalidOperationException("Smtp:Email 尚未設定");
+            var appPassword = _config["Smtp:AppPassword"] ?? throw new InvalidOperationException("Smtp:AppPassword 尚未設定");
 
             var message = new MimeMessage();
             message.From.Add(new MailboxAddress("CLOthings 客服", fromEmail));
@@ -24,7 +26,7 @@ namespace CLOthings_API.Services
             message.Body = new TextPart("plain") { Text = body };
 
             using var client = new SmtpClient();
-            await client.ConnectAsync("smtp.gmail.com", 587, SecureSocketOptions.StartTls);
+            await client.ConnectAsync(host, port, SecureSocketOptions.StartTls);
             await client.AuthenticateAsync(fromEmail, appPassword);
             await client.SendAsync(message);
             await client.DisconnectAsync(true);
