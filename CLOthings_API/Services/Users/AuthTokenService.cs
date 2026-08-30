@@ -31,11 +31,10 @@ namespace CLOthings_API.Services.Users
             var accessToken = GenerateAccessToken(user);
 
             // 2. Refresh Token
-            var refreshToken = GenerateRefreshToken();
+            var refreshToken = GenerateSecureToken();
 
             // 3. Refresh Token Hash
-            var refreshTokenHash =
-                HashRefreshToken(refreshToken);
+            var refreshTokenHash = HashToken(refreshToken);
 
             // 這裡使用 DateTimeOffset.UtcNow 來取得當前的 UTC 時間，並將 Refresh Token 的過期時間設置為 7 天後
             var now = DateTimeOffset.UtcNow;
@@ -86,10 +85,11 @@ namespace CLOthings_API.Services.Users
             };
         }
 
+        // refreshToken 流程
         public async Task<AuthTokenResult?> RefreshTokenAsync(string refreshToken)
         {
             // ① Cookie 裡的 Refresh Token → SHA256
-            var oldTokenHash = HashRefreshToken(refreshToken);
+            var oldTokenHash = HashToken(refreshToken);
 
             // ② 找資料庫紀錄
             var storedToken = await _context.UserRefreshToken
@@ -127,10 +127,10 @@ namespace CLOthings_API.Services.Users
 
             // ⑥ 產生新的 Refresh Token
             var newRefreshToken =
-                GenerateRefreshToken();
+                GenerateSecureToken();
 
             var newRefreshTokenHash =
-                HashRefreshToken(newRefreshToken);
+                HashToken(newRefreshToken);
             //  新 Refresh Token 過期時間
             var newExpiresAt =
                 DateTimeOffset.UtcNow.AddDays(7);
@@ -183,7 +183,38 @@ namespace CLOthings_API.Services.Users
             };
         }
 
-        // 🟢【新增】提供 Refresh 流程建立新的 Access Token
+        // =========================================
+        // 撤銷 Refresh Token
+        // =========================================
+        public async Task RevokeRefreshTokenAsync(
+            string refreshToken)
+        {
+            // 原始 Token → SHA-256
+            var tokenHash =
+                HashToken(refreshToken);
+
+            // 找尚未被撤銷的 Token
+            var storedToken =
+                await _context.UserRefreshToken
+                    .FirstOrDefaultAsync(t =>
+                        t.TokenHash == tokenHash &&
+                        t.RevokedAt == null
+                    );
+
+            // 找不到代表已失效或不存在
+            if (storedToken == null)
+            {
+                return;
+            }
+
+            // 撤銷 Token
+            storedToken.RevokedAt =
+                DateTimeOffset.UtcNow;
+
+            await _context.SaveChangesAsync();
+        }
+
+        // 提供 Refresh 流程建立新的 Access Token
         public string CreateAccessToken(User user)
         {
             return GenerateAccessToken(user);
@@ -257,9 +288,12 @@ namespace CLOthings_API.Services.Users
 
 
         // =========================================
-        // Refresh Token
+        // 安全 Token
+        // Refresh Token / Email 驗證 / 忘記密碼共用
         // =========================================
-        private string GenerateRefreshToken()
+
+        // 產生密碼學安全 Token
+        public string GenerateSecureToken()
         {
             var randomBytes =
                 RandomNumberGenerator.GetBytes(64);
@@ -269,17 +303,11 @@ namespace CLOthings_API.Services.Users
             );
         }
 
-
-        // =========================================
-        // Refresh Token Hash
-        // =========================================
-        private string HashRefreshToken(
-            string refreshToken)
+        // 將 Token 做 SHA-256 Hash
+        public string HashToken(string token)
         {
             var tokenBytes =
-                Encoding.UTF8.GetBytes(
-                    refreshToken
-                );
+                Encoding.UTF8.GetBytes(token);
 
             var hashBytes =
                 SHA256.HashData(tokenBytes);
@@ -288,32 +316,5 @@ namespace CLOthings_API.Services.Users
                 hashBytes
             );
         }
-
-
-    }
-
-
-    // =============================================
-    // Token Service 回傳資料
-    // =============================================
-    public class AuthTokenResult
-    {
-        public string AccessToken { get; set; } = null!;
-
-        public string RefreshToken { get; set; } = null!;
-
-        public DateTimeOffset RefreshTokenExpiresAt
-        {
-            get;
-            set;
-        }
-
-        public int UserId { get; set; }
-
-        public string Name { get; set; } = null!;
-
-        public string Account { get; set; } = null!;
-
-        public string Role { get; set; } = null!;
     }
 }
