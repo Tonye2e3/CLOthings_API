@@ -21,6 +21,7 @@ namespace CLOthings_API.Controllers
         private readonly AuthTokenService _authTokenService;
         private readonly ForgotEmailService _ForgetEmailService;
         private readonly EmailVerificationService _emailVerificationService;
+        private readonly TotpService _totpService;
 
         public AuthController(
             CLOthingsContext context,
@@ -28,7 +29,8 @@ namespace CLOthings_API.Controllers
             IPasswordHasher<User> passwordHasher,
             AuthTokenService authTokenService,
             ForgotEmailService userEmailService,
-            EmailVerificationService emailVerificationService)
+            EmailVerificationService emailVerificationService,
+            TotpService totpService)
         {
             _context = context;
             _configuration = configuration;
@@ -36,6 +38,7 @@ namespace CLOthings_API.Controllers
             _authTokenService = authTokenService;
             _ForgetEmailService = userEmailService;
             _emailVerificationService = emailVerificationService;
+            _totpService = totpService;
         }
 
         // POST: api/User 註冊
@@ -653,5 +656,61 @@ namespace CLOthings_API.Controllers
                 message = "密碼重設成功"
             });
         }
+
+        // GET: api/User/2fa/setup
+        [HttpGet("2fa/setup")]
+        [Authorize]
+        public async Task<IActionResult> SetupTwoFactor()
+        {
+            // 從 JWT 取得目前登入者
+            var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+            if (!int.TryParse(userIdValue, out var userId))
+            {
+                return Unauthorized();
+            }
+
+            var user = await _context.User
+                .FirstOrDefaultAsync(u => u.UserId == userId);
+
+            if (user == null)
+            {
+                return NotFound();
+            }
+
+            // 已經啟用 2FA，不重新產生 Secret
+            if (user.TwoFactorEnabled)
+            {
+                return BadRequest("二階段驗證已啟用");
+            }
+
+            // 產生新的 TOTP Secret
+            var secret = _totpService.GenerateSecret();
+
+            // 暫時儲存 Secret
+            user.TwoFactorSecret = secret;
+            user.UpdatedAt = DateTimeOffset.UtcNow;
+
+            await _context.SaveChangesAsync();
+
+            // Microsoft Authenticator / Google Authenticator
+            // 都支援標準 otpauth URI
+            var issuer = "CLOthings";
+
+            var otpauthUrl =
+    $"otpauth://totp/{Uri.EscapeDataString(issuer)}:{Uri.EscapeDataString(user.Email)}" +
+    $"?secret={Uri.EscapeDataString(secret)}" +
+    $"&issuer={Uri.EscapeDataString(issuer)}" +
+    $"&algorithm=SHA1" +
+    $"&digits=6" +
+    $"&period=30";
+
+            return Ok(new
+            {
+                secret,
+                otpauthUrl
+            });
+        }
     }
+
 }

@@ -39,6 +39,8 @@ builder.Services.AddScoped<EmailService>();
 builder.Services.AddScoped<AuthTokenService>();
 // Email 驗證 service（EmailVerificationService.cs）
 builder.Services.AddScoped<EmailVerificationService>();
+// TOTP 驗證 service（TotpService.cs）
+builder.Services.AddScoped<TotpService>();
 // 忘記密碼 Email 發送 service（ForgotEmailService.cs）
 builder.Services.AddScoped<ForgotEmailService>();
 
