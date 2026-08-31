@@ -1,4 +1,5 @@
 ﻿using CLOthings.Enums;
+using CLOthings_API.DTOs.User;
 using CLOthings_API.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -218,6 +219,145 @@ namespace CLOthings_API.Services.Users
         public string CreateAccessToken(User user)
         {
             return GenerateAccessToken(user);
+        }
+
+        // =========================================
+        // 2FA 暫時登入 Token
+        // 帳號密碼驗證成功，但尚未完成 TOTP 時使用
+        // 有效時間：5 分鐘
+        // =========================================
+        public string GenerateTwoFactorToken(User user)
+        {
+            var claims = new[]
+            {
+        // 記錄這個 Token 屬於哪個會員
+        new Claim(
+            ClaimTypes.NameIdentifier,
+            user.UserId.ToString()
+                    ),
+
+                    // 標記這不是正式 Access Token
+                    new Claim(
+                        "token_type",
+                        "2fa_pending"
+                    )
+                };
+
+            var key =
+                new SymmetricSecurityKey(
+                    Encoding.UTF8.GetBytes(
+                        _configuration["Jwt:Key"]!
+                    )
+                );
+
+            var credentials =
+                new SigningCredentials(
+                    key,
+                    SecurityAlgorithms.HmacSha256
+                );
+
+            var token =
+                new JwtSecurityToken(
+                    issuer:
+                        _configuration["Jwt:Issuer"],
+
+                    audience:
+                        _configuration["Jwt:Audience"],
+
+                    claims: claims,
+
+                    // 2FA Token 只允許使用 5 分鐘
+                    expires:
+                        DateTime.UtcNow.AddMinutes(5),
+
+                    signingCredentials:
+                        credentials
+                );
+
+            return new JwtSecurityTokenHandler()
+                .WriteToken(token);
+        }
+
+        // =========================================
+        // 驗證 2FA 暫時登入 Token
+        // 成功：回傳 UserId
+        // 失敗：回傳 null
+        // =========================================
+        public int? ValidateTwoFactorToken(string twoFactorToken)
+        {
+            try
+            {
+                var key =
+                    new SymmetricSecurityKey(
+                        Encoding.UTF8.GetBytes(
+                            _configuration["Jwt:Key"]!
+                        )
+                    );
+
+                var validationParameters =
+                    new TokenValidationParameters
+                    {
+                        // 驗證簽章
+                        ValidateIssuerSigningKey = true,
+                        IssuerSigningKey = key,
+
+                        // 驗證 Issuer
+                        ValidateIssuer = true,
+                        ValidIssuer =
+                            _configuration["Jwt:Issuer"],
+
+                        // 驗證 Audience
+                        ValidateAudience = true,
+                        ValidAudience =
+                            _configuration["Jwt:Audience"],
+
+                        // 驗證 5 分鐘有效期限
+                        ValidateLifetime = true,
+
+                        // 不額外寬限時間
+                        ClockSkew = TimeSpan.Zero
+                    };
+
+                var tokenHandler =
+                    new JwtSecurityTokenHandler();
+
+                var principal =
+                    tokenHandler.ValidateToken(
+                        twoFactorToken,
+                        validationParameters,
+                        out _
+                    );
+
+                // 確認這顆 Token 真的是 2FA Pending Token
+                var tokenType =
+                    principal.FindFirst("token_type")?.Value;
+
+                if (tokenType != "2fa_pending")
+                {
+                    return null;
+                }
+
+                // 取得 Token 裡的 UserId
+                var userIdValue =
+                    principal.FindFirst(
+                        ClaimTypes.NameIdentifier
+                    )?.Value;
+
+                if (!int.TryParse(
+                    userIdValue,
+                    out var userId))
+                {
+                    return null;
+                }
+
+                return userId;
+            }
+            catch
+            {
+                // Token 過期、被修改、簽章錯誤等
+                // 全部視為無效
+                return null;
+            }
         }
 
         // =========================================

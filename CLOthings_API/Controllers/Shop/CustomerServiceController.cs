@@ -3,7 +3,6 @@ using CLOthings_API.Models;
 using CLOthings_API.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using CLOthings_API.Services;
 
 namespace CLOthings_API.Controllers.Shop
 {
@@ -44,7 +43,7 @@ namespace CLOthings_API.Controllers.Shop
                            $"主旨：{dto.Title}\n" +
                            $"內容：{dto.Content}";
 
-                await _emailService.SendAsync("sandy881133@gmail.com", $"[客服訊息] {dto.Title}", body);
+                await _emailService.SendAsync("clothings.admin@gmail.com", $"[客服訊息] {dto.Title}", body);
             }
             catch (Exception ex)
             {

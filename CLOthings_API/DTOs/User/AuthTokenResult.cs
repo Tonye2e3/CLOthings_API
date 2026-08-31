@@ -1,4 +1,4 @@
-﻿namespace CLOthings_API.Services.Users
+﻿namespace CLOthings_API.DTOs.User
 {
 
     // =============================================

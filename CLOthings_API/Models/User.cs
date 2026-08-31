@@ -27,7 +27,7 @@ public partial class User
 
     public int Status { get; set; }
 
-    public bool? TwoFactorEnabled { get; set; }
+    public bool TwoFactorEnabled { get; set; }
 
     public string TwoFactorSecret { get; set; }
 
