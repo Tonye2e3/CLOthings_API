@@ -1,5 +1,6 @@
 ﻿using CLOthings.Enums;
 using CLOthings_API.DTO.User;
+using CLOthings_API.DTOs.User;
 using CLOthings_API.Models;
 using CLOthings_API.Services.Users;
 using Microsoft.AspNetCore.Authentication;

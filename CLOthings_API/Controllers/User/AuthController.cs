@@ -373,7 +373,26 @@ namespace CLOthings_API.Controllers
                 return Unauthorized("帳號或密碼錯誤");
             }
 
-            // 🟢 3. 建立登入 Token
+            // 3. 如果會員已啟用二階段驗證
+            // 先不要發 Access Token / Refresh Token
+            if (user.TwoFactorEnabled)
+            {
+                //  產生短效 2FA Token
+                var twoFactorToken =
+                    _authTokenService
+                        .GenerateTwoFactorToken(user);
+
+                return Ok(new
+                {
+                    requiresTwoFactor = true,
+
+                    twoFactorToken,
+
+                    message = "請輸入 Authenticator 驗證碼"
+                });
+            }
+
+            //沒有啟用 2FA 才直接建立 Token
             var tokenResult =
                 await _authTokenService
                     .CreateLoginTokenAsync(user);
@@ -405,6 +424,184 @@ namespace CLOthings_API.Controllers
                 account = tokenResult.Account,
 
                 role = tokenResult.Role
+            });
+        }
+
+        // POST: api/User/2fa/login
+        // 驗證 TOTP 驗證碼，完成第二階段登入
+        [HttpPost("2fa/login")]
+        [AllowAnonymous]
+        public async Task<ActionResult> TwoFactorLogin(
+            TwoFactorLoginDTO dto)
+        {
+            // 1. 驗證第一階段登入產生的暫時 Token
+            var userId =
+                _authTokenService.ValidateTwoFactorToken(
+                    dto.TwoFactorToken
+                );
+
+            if (userId == null)
+            {
+                return Unauthorized(
+                    "2FA 登入憑證無效或已過期"
+                );
+            }
+
+            // 2. 找使用者
+            var user = await _context.User
+                .FirstOrDefaultAsync(u =>
+                    u.UserId == userId.Value
+                );
+
+            if (user == null)
+            {
+                return Unauthorized(
+                    "使用者不存在"
+                );
+            }
+
+            // 3. 確認使用者有啟用 2FA
+            if (!user.TwoFactorEnabled)
+            {
+                return BadRequest(
+                    "此帳號尚未啟用二階段驗證"
+                );
+            }
+
+            // 4. 確認 Secret 存在
+            if (string.IsNullOrWhiteSpace(
+                user.TwoFactorSecret))
+            {
+                return BadRequest(
+                    "找不到二階段驗證設定"
+                );
+            }
+
+            // 5. 驗證 Authenticator 的 6 位數驗證碼
+            var isValid =
+                _totpService.VerifyCode(
+                    user.TwoFactorSecret,
+                    dto.Code
+                );
+
+            if (!isValid)
+            {
+                return Unauthorized(
+                    "驗證碼錯誤或已過期"
+                );
+            }
+
+            // 6. 2FA 通過
+            // 現在才建立正式 Access Token + Refresh Token
+            var tokenResult =
+                await _authTokenService
+                    .CreateLoginTokenAsync(user);
+
+            // 7. Refresh Token 放入 HttpOnly Cookie
+            Response.Cookies.Append(
+                "refreshToken",
+                tokenResult.RefreshToken,
+                new CookieOptions
+                {
+                    HttpOnly = true,
+                    Secure = true,
+                    SameSite = SameSiteMode.None,
+                    Expires =
+                        tokenResult.RefreshTokenExpiresAt
+                }
+            );
+
+            // 8. 正式登入成功
+            return Ok(new
+            {
+                token = tokenResult.AccessToken,
+
+                userId = tokenResult.UserId,
+
+                name = tokenResult.Name,
+
+                account = tokenResult.Account,
+
+                role = tokenResult.Role
+            });
+        }
+
+        // POST: api/User/2fa/disable
+        // 停用二階段驗證
+        [HttpPost("2fa/disable")]
+        [Authorize]
+        public async Task<IActionResult> DisableTwoFactor(
+            DisableTwoFactorDTO dto)
+        {
+            // 1. 從 JWT 取得目前登入者 UserId
+            var userIdValue =
+                User.FindFirstValue(
+                    ClaimTypes.NameIdentifier
+                );
+
+            if (!int.TryParse(userIdValue, out var userId))
+            {
+                return Unauthorized();
+            }
+
+            // 2. 找目前登入會員
+            var user = await _context.User
+                .FirstOrDefaultAsync(u =>
+                    u.UserId == userId
+                );
+
+            if (user == null)
+            {
+                return NotFound();
+            }
+
+            // 3. 確認目前有啟用 2FA
+            if (!user.TwoFactorEnabled)
+            {
+                return BadRequest(
+                    "此帳號尚未啟用二階段驗證"
+                );
+            }
+
+            // 4. 確認 Secret 存在
+            if (string.IsNullOrWhiteSpace(
+                user.TwoFactorSecret))
+            {
+                return BadRequest(
+                    "找不到二階段驗證設定"
+                );
+            }
+
+            // 5. 驗證目前 Authenticator 的 6 位數驗證碼
+            var isValid =
+                _totpService.VerifyCode(
+                    user.TwoFactorSecret,
+                    dto.Code
+                );
+
+            if (!isValid)
+            {
+                return Unauthorized(
+                    "驗證碼錯誤或已過期"
+                );
+            }
+
+            // 6. 關閉 2FA
+            user.TwoFactorEnabled = false;
+
+            // 7. Secret 一併刪除
+            // 下次重新啟用時會產生全新的 Secret
+            user.TwoFactorSecret = null;
+
+            user.UpdatedAt =
+                DateTimeOffset.UtcNow;
+
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                message = "二階段驗證已停用",
+                twoFactorEnabled = false
             });
         }
 
@@ -657,7 +854,7 @@ namespace CLOthings_API.Controllers
             });
         }
 
-        // GET: api/User/2fa/setup
+        // GET: api/User/2fa/setup 設定二階段驗證，產生 TOTP Secret 與 QR Code URL
         [HttpGet("2fa/setup")]
         [Authorize]
         public async Task<IActionResult> SetupTwoFactor()
@@ -697,20 +894,114 @@ namespace CLOthings_API.Controllers
             // 都支援標準 otpauth URI
             var issuer = "CLOthings";
 
-            var otpauthUrl =
-    $"otpauth://totp/{Uri.EscapeDataString(issuer)}:{Uri.EscapeDataString(user.Email)}" +
-    $"?secret={Uri.EscapeDataString(secret)}" +
-    $"&issuer={Uri.EscapeDataString(issuer)}" +
-    $"&algorithm=SHA1" +
-    $"&digits=6" +
-    $"&period=30";
+            var otpAuthUrl =
+                $"otpauth://totp/{Uri.EscapeDataString(issuer)}:{Uri.EscapeDataString(user.Email)}" +
+                $"?secret={Uri.EscapeDataString(secret)}" +
+                $"&issuer={Uri.EscapeDataString(issuer)}" +
+                $"&algorithm=SHA1" +
+                $"&digits=6" +
+                $"&period=30";
 
             return Ok(new
             {
                 secret,
-                otpauthUrl
+                otpAuthUrl
+            });
+        }
+
+        // POST: api/User/2fa/enable
+        [HttpPost("2fa/enable")]
+        [Authorize]
+        public async Task<IActionResult> EnableTwoFactor(EnableTwoFactorDTO dto)
+        {
+            // 1. 從 JWT 取得目前登入者
+            var userIdValue =
+                User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+            if (!int.TryParse(userIdValue, out var userId))
+            {
+                return Unauthorized();
+            }
+
+            // 2. 找目前登入會員
+            var user = await _context.User
+                .FirstOrDefaultAsync(u => u.UserId == userId);
+
+            if (user == null)
+            {
+                return NotFound();
+            }
+
+            // 3. 已經啟用 2FA
+            if (user.TwoFactorEnabled)
+            {
+                return BadRequest("二階段驗證已啟用");
+            }
+
+            // 4. 尚未執行 Setup
+            if (string.IsNullOrWhiteSpace(user.TwoFactorSecret))
+            {
+                return BadRequest("尚未設定二階段驗證");
+            }
+
+            // 5. 驗證 Authenticator 的 6 位數驗證碼
+            var isValid = _totpService.VerifyCode(
+                user.TwoFactorSecret,
+                dto.Code
+            );
+
+            if (!isValid)
+            {
+                return BadRequest("驗證碼錯誤或已過期");
+            }
+
+            // 6. 驗證成功，正式啟用
+            user.TwoFactorEnabled = true;
+            user.UpdatedAt = DateTimeOffset.UtcNow;
+
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                message = "二階段驗證啟用成功",
+                twoFactorEnabled = true
+            });
+        }
+
+        // GET: api/User/2fa/status
+        // 查詢目前會員的二階段驗證狀態
+        [HttpGet("2fa/status")]
+        [Authorize]
+        public async Task<IActionResult> GetTwoFactorStatus()
+        {
+            // 1. 從 JWT 取得目前登入者 UserId
+            var userIdValue =
+                User.FindFirstValue(
+                    ClaimTypes.NameIdentifier
+                );
+
+            if (!int.TryParse(userIdValue, out var userId))
+            {
+                return Unauthorized();
+            }
+
+            // 2. 查詢會員
+            var user = await _context.User
+                .FirstOrDefaultAsync(u =>
+                    u.UserId == userId
+                );
+
+            if (user == null)
+            {
+                return NotFound();
+            }
+
+            // 3. 回傳 2FA 狀態
+            return Ok(new
+            {
+                twoFactorEnabled =
+                    user.TwoFactorEnabled
             });
         }
     }
-
 }
