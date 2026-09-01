@@ -416,7 +416,7 @@ namespace CLOthings_API.Services.Users
                     claims: claims,
                     //Access Token 有效時間
                     expires:
-                        DateTime.UtcNow.AddMinutes(20),
+                        DateTime.UtcNow.AddMinutes(5),
 
                     signingCredentials:
                         credentials
